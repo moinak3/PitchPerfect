@@ -12,12 +12,12 @@ function FeatureCard({ label, desc, icon }) {
 
 export default function SongInput({ onSubmit }) {
   const [tab, setTab] = useState('youtube')
-  const [url, setUrl] = useState('')
+  const [url, setUrl] = useState('https://www.youtube.com/watch?v=vGJTaP6anOU')
   const [file, setFile] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [artist, setArtist] = useState('')
-  const [songTitle, setSongTitle] = useState('')
+  const [artist, setArtist] = useState('Elvis Presley')
+  const [songTitle, setSongTitle] = useState("Can't Help Falling in Love")
   const fileRef = useRef(null)
 
   const handleYouTubeSubmit = async (e) => {
