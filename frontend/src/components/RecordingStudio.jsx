@@ -81,6 +81,46 @@ function midiToNote(midi) {
   return NOTE_NAMES[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1)
 }
 
+// First index i where arr[i] >= target (arr sorted ascending).
+function lowerBound(arr, target) {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (arr[mid] < target) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+// Median reference pitch (Hz) within [a, b]. null if no voiced frames there.
+function medianHz(times, hz, a, b) {
+  const vals = []
+  for (let i = lowerBound(times, a); i < times.length && times[i] <= b; i++) {
+    if (hz[i] > 0) vals.push(hz[i])
+  }
+  if (!vals.length) return null
+  vals.sort((x, y) => x - y)
+  return vals[vals.length >> 1]
+}
+
+// Attach a target note (the reference pitch the singer should hit) to every
+// display word, computed from the reference pitch contour over the word's
+// time window.  Falls back to a wider window for short/consonant words so each
+// word still gets a note.  Runs once per data change (not per animation frame).
+function attachWordNotes(words, pitchGuide) {
+  const times = pitchGuide?.times
+  const hz = pitchGuide?.hz
+  if (!times?.length || !hz?.length) return words
+  for (const w of words) {
+    let m = medianHz(times, hz, w.start - 0.05, w.end + 0.05)
+    if (m == null) m = medianHz(times, hz, w.start - 0.25, w.end + 0.3)
+    w.hz = m || null
+    w.note = m ? midiToNote(hzToMidi(m)) : null
+  }
+  return words
+}
+
 function PitchGuide({ refWords, recTime, pitchGuide }) {
   const W = 640, H = 80, PT = 8, PB = 16, PL = 36, PR = 8
   const cW = W - PL - PR
@@ -445,7 +485,10 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
 
   // ── No corrected lyrics: fall back to Whisper's own words (+ timestamps) ──
   if (!tokens.length) {
-    return hasRef ? refWords.map((w) => ({ word: w.word, start: w.start, end: w.end })) : []
+    return attachWordNotes(
+      hasRef ? refWords.map((w) => ({ word: w.word, start: w.start, end: w.end })) : [],
+      pitchGuide
+    )
   }
 
   const S = tokens.length
@@ -457,11 +500,14 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
     const voiced = times.filter((t) => t >= vocalStartTime)
     const base = voiced.length ? voiced : times
     const N = base.length
-    return tokens.map((word, i) => {
-      const fi = Math.min(Math.floor((i * N) / S), N - 1)
-      const nfi = Math.min(Math.floor(((i + 1) * N) / S), N - 1)
-      return { word, start: base[fi], end: nfi !== fi ? base[nfi] : base[fi] + 0.4 }
-    })
+    return attachWordNotes(
+      tokens.map((word, i) => {
+        const fi = Math.min(Math.floor((i * N) / S), N - 1)
+        const nfi = Math.min(Math.floor(((i + 1) * N) / S), N - 1)
+        return { word, start: base[fi], end: nfi !== fi ? base[nfi] : base[fi] + 0.4 }
+      }),
+      pitchGuide
+    )
   }
 
   const R = refWords.length
@@ -558,11 +604,14 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
   // Enforce non-decreasing starts (alignment noise can invert a few).
   for (let i = 1; i < S; i++) if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1]
 
-  return tokens.map((word, i) => ({
-    word,
-    start: starts[i],
-    end: i + 1 < S ? Math.max(starts[i] + 0.12, starts[i + 1]) : starts[i] + 0.45,
-  }))
+  return attachWordNotes(
+    tokens.map((word, i) => ({
+      word,
+      start: starts[i],
+      end: i + 1 < S ? Math.max(starts[i] + 0.12, starts[i + 1]) : starts[i] + 0.45,
+    })),
+    pitchGuide
+  )
 }
 
 // Karaoke-style lyrics display: shows ~9 words centered on the current word,
@@ -600,26 +649,50 @@ function KaraokeDisplay({ refWords, sourceLyrics, pitchGuide, recTime, vocalStar
   const sliceEnd = Math.min(displayWords.length, focusIdx + AFTER + 1)
   const slice = displayWords.slice(sliceStart, sliceEnd)
 
+  // Vertical offset for each word's note — maps its pitch within the visible
+  // window so you can *see* the melody rise and fall across the words.
+  const midis = slice.map((w) => (w.hz ? hzToMidi(w.hz) : null)).filter((m) => m != null)
+  const mLo = midis.length ? Math.min(...midis) : 0
+  const mHi = midis.length ? Math.max(...midis) : 1
+  const noteLift = (hz) => {
+    if (!hz || mHi === mLo) return 0
+    // Higher pitch → lifted further up (max ~18px)
+    return Math.round(((hzToMidi(hz) - mLo) / (mHi - mLo)) * 18)
+  }
+
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 py-3 min-h-[52px]">
+    <div className="flex flex-wrap items-end justify-center gap-x-3 gap-y-2 px-4 py-3 min-h-[68px]">
       {slice.map((w, i) => {
         const absIdx = sliceStart + i
         const isCurrent = absIdx === currentIdx
         const isPast = recTime > w.end
         return (
-          <span
-            key={absIdx}
-            className={`text-lg font-bold transition-all duration-150 select-none ${
-              isCurrent
-                ? 'text-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]'
-                : isPast
-                ? 'text-gray-700'
-                : 'text-gray-500'
-            }`}
-            style={{ display: 'inline-block' }}
-          >
-            {w.word}
-          </span>
+          <div key={absIdx} className="flex flex-col items-center justify-end">
+            {/* Target note for this word */}
+            <span
+              className={`text-[10px] font-mono leading-none mb-1 transition-all duration-150 select-none ${
+                isCurrent
+                  ? 'text-emerald-300'
+                  : isPast
+                  ? 'text-gray-700'
+                  : 'text-emerald-700/80'
+              }`}
+              style={{ transform: `translateY(${-noteLift(w.hz)}px)` }}
+            >
+              {w.note || '·'}
+            </span>
+            <span
+              className={`text-lg font-bold leading-none transition-all duration-150 select-none ${
+                isCurrent
+                  ? 'text-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                  : isPast
+                  ? 'text-gray-700'
+                  : 'text-gray-500'
+              }`}
+            >
+              {w.word}
+            </span>
+          </div>
         )
       })}
     </div>

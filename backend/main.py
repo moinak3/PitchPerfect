@@ -203,32 +203,44 @@ def get_job(job_id: str):
         raw_times = job["reference"].get("pitch_times", [])
         raw_hz = job["reference"].get("pitch_hz", [])
         raw_conf = job["reference"].get("pitch_confidence", [])
+        words = job["reference"].get("words", [])
 
-        # Detect where the singer is actually singing.  This separates the two
-        # concerns that per-frame confidence alone cannot:
-        #   - WHERE vocals are (confident frames clustered into sections)
-        #   - the DENSE pitch contour to draw (all voiced frames in those sections)
-        sections, vstart = detect_vocal_sections(raw_times, raw_hz, raw_conf)
-        vocal_start_time = vstart
+        # Determine the time ranges that actually contain singing, so the pitch
+        # contour stays dense there while instrument bleed (piano intro, breaks)
+        # is excluded.  Whisper word spans are the most reliable vocal mask — a
+        # word exists exactly where something is sung — and crucially they KEEP
+        # soft / low-confidence singing (e.g. "I can't help") that a pitch-
+        # confidence gate would wrongly drop.  Fall back to confidence-based
+        # vocal sections only when there are no transcribed words.
+        PAD = 0.2
+        if words:
+            ranges = [(float(w["start"]) - PAD, float(w["end"]) + PAD) for w in words]
+            # merge overlapping/adjacent windows (words are time-ordered)
+            merged = []
+            for a, b in ranges:
+                if merged and a <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], b)
+                else:
+                    merged.append([a, b])
+            ranges = merged
+            vocal_start_time = float(words[0]["start"])
+        else:
+            sections, vstart = detect_vocal_sections(raw_times, raw_hz, raw_conf)
+            ranges = [[a - PAD, b + PAD] for (a, b) in sections]
+            vocal_start_time = vstart
 
-        # Build the display contour: every voiced (non-NaN) frame that falls
-        # inside a detected vocal section (padded slightly).  Low per-frame
-        # confidence frames are KEPT here so the melody line stays smooth — they
-        # are only excluded when they sit in pure-instrumental regions (no nearby
-        # confident frame ⇒ not inside any section).
-        PAD = 0.4
-        ranges = [(a - PAD, b + PAD) for (a, b) in sections]
+        # Keep every voiced (non-NaN) frame whose time falls inside a vocal range.
         gt, ghz = [], []
         ri = 0
+        n_ranges = len(ranges)
         for i in range(len(raw_times)):
             h = raw_hz[i]
             if h is None or (isinstance(h, float) and math.isnan(h)) or h <= 0:
                 continue
             t = raw_times[i]
-            # Advance section pointer (raw_times is sorted ascending)
-            while ri < len(ranges) and t > ranges[ri][1]:
+            while ri < n_ranges and t > ranges[ri][1]:
                 ri += 1
-            if ri < len(ranges) and t >= ranges[ri][0]:
+            if ri < n_ranges and t >= ranges[ri][0]:
                 gt.append(round(t, 3))
                 ghz.append(round(h, 1))
 
