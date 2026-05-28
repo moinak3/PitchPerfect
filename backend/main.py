@@ -194,14 +194,33 @@ def get_job(job_id: str):
     if "reference" in job:
         raw_times = job["reference"].get("pitch_times", [])
         raw_hz = job["reference"].get("pitch_hz", [])
-        # Downsample to ~20 samples/sec (PYIN runs at ~100 Hz, so step=5)
-        step = max(1, len(raw_times) // 3000)
-        gt, ghz = [], []
-        for i in range(0, len(raw_times), step):
+        raw_conf = job["reference"].get("pitch_confidence", [])
+        # Step 1 — confidence filter first, THEN downsample.
+        # pyin emits low-confidence (~0.010) estimates for every frame, including
+        # instrument bleed-through.  Only frames at >= 0.2 are genuinely voiced.
+        # Filtering BEFORE downsampling preserves the density of voiced runs (e.g.
+        # a 0.5-second sung syllable stays as ~50 consecutive close-together frames),
+        # which the frontend cluster detector relies on to locate vocal onset.
+        CONF_THRESHOLD = 0.2
+        voiced_t, voiced_hz = [], []
+        for i in range(len(raw_times)):
             h = raw_hz[i]
-            if h is not None and not (isinstance(h, float) and math.isnan(h)) and h > 0:
-                gt.append(round(raw_times[i], 3))
-                ghz.append(round(h, 1))
+            conf = raw_conf[i] if i < len(raw_conf) else 1.0
+            if (h is not None
+                    and not (isinstance(h, float) and math.isnan(h))
+                    and h > 0
+                    and conf >= CONF_THRESHOLD):
+                voiced_t.append(raw_times[i])
+                voiced_hz.append(h)
+        # Step 2 — light downsample only if the voiced list is very large
+        # (keeps the JSON payload under ~100 KB for typical 3-4 min songs).
+        MAX_FRAMES = 4000
+        if len(voiced_t) > MAX_FRAMES:
+            step = len(voiced_t) // MAX_FRAMES
+            voiced_t  = voiced_t[::step]
+            voiced_hz = voiced_hz[::step]
+        gt  = [round(t, 3) for t in voiced_t]
+        ghz = [round(h, 1) for h in voiced_hz]
         pitch_guide = {"times": gt, "hz": ghz}
 
     return {

@@ -374,38 +374,53 @@ function LyricsReviewPanel({ refWords, sourceLyrics, songTitle, artist, jobId, o
 }
 
 /**
- * Detect the first sustained vocal onset in the pitchGuide timeline.
+ * Detect the first substantial vocal section in the pitchGuide timeline.
  *
- * Demucs vocal separation leaks instrument energy (piano, guitar) into the
- * vocal stem, so pyin fires on those bleed-through frames.  Instrument bleed
- * tends to be sparse — isolated short bursts with gaps > ~250 ms.  Actual
- * sustained singing creates a dense run of consecutive voiced frames.
+ * Strategy: split the voiced frames into "sections" wherever there is a gap
+ * larger than SECTION_GAP_S seconds (i.e. a silence / instrumental break).
+ * Return the start of the first section that has at least MIN_PHRASE_FRAMES
+ * voiced frames — this is what we call "the singer starting to sing."
  *
- * We find the first run of ≥ minRunFrames consecutive frames where every
- * adjacent gap is ≤ maxGapSec.  That run start is the real vocal onset.
- *
- * If Whisper skipped an entire verse (its first word lands later than the
- * actual singing start), this gives a much better anchor than refWords[0].start.
+ * Why this beats a simple cluster detector:
+ *  - The backend (conf ≥ 0.2 filter) already removes low-energy bleed-through
+ *    from instruments, but brief pre-song vocal fragments or background hum can
+ *    still pass.  Those typically form small sections (< 50 frames) separated
+ *    from the main vocal body by > 2 s of silence.
+ *  - The main vocal section — even the very first phrase — will have many
+ *    consecutive pitched frames and easily surpasses MIN_PHRASE_FRAMES.
+ *  - Works even when Whisper skips an entire verse (refWords[0] starts late):
+ *    the pitch data contains the real vocal onset independent of ASR output.
  */
-function findVocalStart(times, minRunFrames = 12, maxGapSec = 0.25) {
+function findVocalStart(times) {
   if (!times?.length) return 0
 
-  let runStart = 0
-  let runLen = 1
+  // Gap that separates two distinct vocal sections (silence / instrumental break)
+  const SECTION_GAP_S = 2.0
+  // Minimum voiced frames for a section to be considered "real singing"
+  // (~50 frames ≈ 0.5 s of continuous vocals at 100 fps)
+  const MIN_PHRASE_FRAMES = 50
+
+  let sectionStart = 0
+  let sectionLen = 1
 
   for (let i = 1; i < times.length; i++) {
-    if (times[i] - times[i - 1] <= maxGapSec) {
-      runLen++
-      if (runLen >= minRunFrames) {
-        return times[runStart]
+    if (times[i] - times[i - 1] > SECTION_GAP_S) {
+      if (sectionLen >= MIN_PHRASE_FRAMES) {
+        return times[sectionStart]
       }
+      sectionStart = i
+      sectionLen = 1
     } else {
-      runStart = i
-      runLen = 1
+      sectionLen++
     }
   }
 
-  // Nothing sustained — fall back to the very first frame
+  // Check the last (or only) section
+  if (sectionLen >= MIN_PHRASE_FRAMES) {
+    return times[sectionStart]
+  }
+
+  // Fallback: no substantial section found — use the very first frame
   return times[0]
 }
 
