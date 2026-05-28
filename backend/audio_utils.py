@@ -170,7 +170,7 @@ def detect_vocal_sections(
     conf: List[float],
     conf_threshold: float = 0.2,
     gap_s: float = 2.0,
-    min_frames: int = 50,
+    min_frames: int = 25,
 ) -> Tuple[List[Tuple[float, float]], float]:
     """
     Locate where the singer is actually singing in the reference vocal track.

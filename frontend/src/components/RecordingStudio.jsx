@@ -521,8 +521,21 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
     const span = lastKnown - firstKnown
     const avgDur =
       span > 0 ? Math.max(0.12, (starts[lastKnown] - starts[firstKnown]) / span) : 0.45
-    // Leading tokens Whisper never produced: step back at the average pace.
-    for (let i = firstKnown - 1; i >= 0; i--) starts[i] = Math.max(0, starts[i + 1] - avgDur)
+    // Leading tokens Whisper never produced (it skipped the opening verse):
+    // anchor the first token to the true vocal onset (from pitch) and spread
+    // linearly up to the first Whisper-anchored word.  This is far more accurate
+    // than stepping backward at the average pace, which would land the opening
+    // words several seconds late.
+    const leadStart = Math.min(vocalStartTime || 0, starts[firstKnown])
+    if (firstKnown > 0) {
+      if (leadStart < starts[firstKnown]) {
+        for (let i = 0; i < firstKnown; i++) {
+          starts[i] = leadStart + ((starts[firstKnown] - leadStart) * i) / firstKnown
+        }
+      } else {
+        for (let i = firstKnown - 1; i >= 0; i--) starts[i] = Math.max(0, starts[i + 1] - avgDur)
+      }
+    }
     // Trailing tokens: step forward.
     for (let i = lastKnown + 1; i < S; i++) starts[i] = starts[i - 1] + avgDur
     // Interior gaps (Whisper merged words): linear interpolate between anchors.
