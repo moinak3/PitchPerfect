@@ -426,90 +426,130 @@ function lcsPairs(a, b) {
 /**
  * Build a display word list (each { word, start, end }) for the karaoke view.
  *
- * GUIDING PRINCIPLE: timing always comes from Whisper's measured word
- * timestamps.  Whisper transcribed the actual audio, so refWords[i].start/end
- * is when word i is genuinely sung — we never override this with a pitch
- * heuristic.  There is exactly ONE display entry per Whisper word.
+ * GUIDING PRINCIPLES:
+ *  1. Show EVERY corrected-lyric word — we iterate over the source tokens, so
+ *     nothing goes missing even when Whisper skipped or mangled a line.
+ *  2. Timing comes from Whisper's MEASURED word timestamps — never a pitch
+ *     heuristic.  Each source token is mapped (by alignment + position) onto a
+ *     Whisper word and inherits its real start time.  Only where Whisper has no
+ *     words at all do we interpolate/extrapolate.
  *
- * The corrected sourceLyrics (if present) is used ONLY to fix the displayed
- * TEXT (e.g. Whisper heard "What" but the real word is "Wise").  We align the
- * source tokens onto the Whisper words and substitute the correct spelling,
- * keeping Whisper's timestamp.  Alignment uses LCS anchors, with words between
- * anchors mapped positionally into the corresponding source span.
- *
- * Falls back to spreading source tokens over voiced pitch frames only when
- * there are no Whisper words at all.
+ * Mapping: LCS gives exact text-match anchors; tokens between/around anchors are
+ * mapped positionally onto the corresponding Whisper-word span, so even badly
+ * mis-transcribed words (e.g. Whisper "What is" for "Wise men") still land on
+ * the correct timestamps.
  */
 function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 0) {
   const hasRef = refWords?.length > 0
+  const tokens = sourceLyrics ? tokeniseLyrics(sourceLyrics) : []
 
-  // ── Fallback: no Whisper words — spread source tokens over voiced frames ──
+  // ── No corrected lyrics: fall back to Whisper's own words (+ timestamps) ──
+  if (!tokens.length) {
+    return hasRef ? refWords.map((w) => ({ word: w.word, start: w.start, end: w.end })) : []
+  }
+
+  const S = tokens.length
+
+  // ── No Whisper words at all: spread tokens over voiced pitch frames ──────
   if (!hasRef) {
-    if (!sourceLyrics) return []
-    const tokens = tokeniseLyrics(sourceLyrics)
     const times = pitchGuide?.times
-    if (!tokens.length || !times?.length) return []
+    if (!times?.length) return []
     const voiced = times.filter((t) => t >= vocalStartTime)
     const base = voiced.length ? voiced : times
     const N = base.length
-    const M = tokens.length
     return tokens.map((word, i) => {
-      const fi = Math.min(Math.floor((i * N) / M), N - 1)
-      const nfi = Math.min(Math.floor(((i + 1) * N) / M), N - 1)
+      const fi = Math.min(Math.floor((i * N) / S), N - 1)
+      const nfi = Math.min(Math.floor(((i + 1) * N) / S), N - 1)
       return { word, start: base[fi], end: nfi !== fi ? base[nfi] : base[fi] + 0.4 }
     })
   }
 
-  // Timing is ALWAYS Whisper's. Without corrected lyrics, show Whisper text too.
-  const asWhisper = () =>
-    refWords.map((w) => ({ word: w.word, start: w.start, end: w.end }))
+  const R = refWords.length
 
-  if (!sourceLyrics) return asWhisper()
-  const tokens = tokeniseLyrics(sourceLyrics)
-  if (!tokens.length) return asWhisper()
-
-  // ── Map each Whisper word → a source token index (for TEXT correction) ───
+  // ── Map each SOURCE token → a Whisper word index (→ real timestamp) ──────
   const srcNorm = tokens.map(normWord)
   const refNorm = refWords.map((w) => normWord(w.word))
-  const pairs = lcsPairs(srcNorm, refNorm) // [{ si, ri }] exact matches
+  const pairs = lcsPairs(srcNorm, refNorm) // [{ si, ri }] exact text matches
 
-  const R = refWords.length
-  const S = tokens.length
-  const srcIdxForRef = new Array(R).fill(null)
-  for (const { si, ri } of pairs) srcIdxForRef[ri] = si
+  const refIdxForSrc = new Array(S).fill(null)
+  for (const { si, ri } of pairs) refIdxForSrc[si] = ri
 
-  // Fill Whisper words in the ref-range [r0, r1) by mapping them positionally
-  // onto the source-range [s0, s1).  Used for the gaps between LCS anchors and
-  // the leading / trailing ends.
-  const fillRange = (r0, r1, s0, s1) => {
-    const rn = r1 - r0
+  // Positionally map source tokens [s0,s1) onto Whisper words [r0,r1).
+  // Leaves null where Whisper has no words for that span (rn === 0).
+  const fillRange = (s0, s1, r0, r1) => {
     const sn = s1 - s0
-    for (let k = 0; k < rn; k++) {
-      srcIdxForRef[r0 + k] =
-        sn > 0 ? s0 + Math.min(sn - 1, Math.floor((k * sn) / rn)) : null
+    const rn = r1 - r0
+    for (let k = 0; k < sn; k++) {
+      if (rn > 0) refIdxForSrc[s0 + k] = r0 + Math.min(rn - 1, Math.floor((k * rn) / sn))
     }
   }
 
   if (!pairs.length) {
-    // No exact anchors — counts are usually close, so map positionally 1:1.
-    fillRange(0, R, 0, S)
+    fillRange(0, S, 0, R)
   } else {
-    fillRange(0, pairs[0].ri, 0, pairs[0].si) // leading
+    fillRange(0, pairs[0].si, 0, pairs[0].ri) // leading
     for (let p = 0; p < pairs.length - 1; p++) {
-      fillRange(
-        pairs[p].ri + 1, pairs[p + 1].ri,
-        pairs[p].si + 1, pairs[p + 1].si
-      ) // between anchors
+      fillRange(pairs[p].si + 1, pairs[p + 1].si, pairs[p].ri + 1, pairs[p + 1].ri)
     }
     const last = pairs[pairs.length - 1]
-    fillRange(last.ri + 1, R, last.si + 1, S) // trailing
+    fillRange(last.si + 1, S, last.ri + 1, R) // trailing
   }
 
-  return refWords.map((w, ri) => {
-    const si = srcIdxForRef[ri]
-    const text = si != null && si < S ? tokens[si] : w.word
-    return { word: text, start: w.start, end: w.end }
-  })
+  // Resolve each token's start time from its mapped Whisper word.
+  const starts = new Array(S).fill(null)
+  for (let i = 0; i < S; i++) {
+    const ri = refIdxForSrc[i]
+    if (ri != null) starts[i] = refWords[ri].start
+  }
+
+  // Locate first/last anchored tokens to bound the gap-filling.
+  let firstKnown = -1
+  let lastKnown = -1
+  for (let i = 0; i < S; i++) {
+    if (starts[i] != null) {
+      if (firstKnown < 0) firstKnown = i
+      lastKnown = i
+    }
+  }
+
+  if (firstKnown < 0) {
+    // No mapping at all — spread proportionally over Whisper timeline.
+    for (let i = 0; i < S; i++) {
+      starts[i] = refWords[Math.min(Math.floor((i * R) / S), R - 1)].start
+    }
+  } else {
+    const span = lastKnown - firstKnown
+    const avgDur =
+      span > 0 ? Math.max(0.12, (starts[lastKnown] - starts[firstKnown]) / span) : 0.45
+    // Leading tokens Whisper never produced: step back at the average pace.
+    for (let i = firstKnown - 1; i >= 0; i--) starts[i] = Math.max(0, starts[i + 1] - avgDur)
+    // Trailing tokens: step forward.
+    for (let i = lastKnown + 1; i < S; i++) starts[i] = starts[i - 1] + avgDur
+    // Interior gaps (Whisper merged words): linear interpolate between anchors.
+    let i = firstKnown + 1
+    while (i < lastKnown) {
+      if (starts[i] == null) {
+        let j = i
+        while (j < S && starts[j] == null) j++
+        const t0 = starts[i - 1]
+        const t1 = starts[j]
+        const n = j - (i - 1)
+        for (let k = i; k < j; k++) starts[k] = t0 + ((t1 - t0) * (k - (i - 1))) / n
+        i = j
+      } else {
+        i++
+      }
+    }
+  }
+
+  // Enforce non-decreasing starts (alignment noise can invert a few).
+  for (let i = 1; i < S; i++) if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1]
+
+  return tokens.map((word, i) => ({
+    word,
+    start: starts[i],
+    end: i + 1 < S ? Math.max(starts[i] + 0.12, starts[i + 1]) : starts[i] + 0.45,
+  }))
 }
 
 // Karaoke-style lyrics display: shows ~9 words centered on the current word,
