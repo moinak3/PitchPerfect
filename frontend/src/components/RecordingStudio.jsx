@@ -374,6 +374,42 @@ function LyricsReviewPanel({ refWords, sourceLyrics, songTitle, artist, jobId, o
 }
 
 /**
+ * Detect the first sustained vocal onset in the pitchGuide timeline.
+ *
+ * Demucs vocal separation leaks instrument energy (piano, guitar) into the
+ * vocal stem, so pyin fires on those bleed-through frames.  Instrument bleed
+ * tends to be sparse — isolated short bursts with gaps > ~250 ms.  Actual
+ * sustained singing creates a dense run of consecutive voiced frames.
+ *
+ * We find the first run of ≥ minRunFrames consecutive frames where every
+ * adjacent gap is ≤ maxGapSec.  That run start is the real vocal onset.
+ *
+ * If Whisper skipped an entire verse (its first word lands later than the
+ * actual singing start), this gives a much better anchor than refWords[0].start.
+ */
+function findVocalStart(times, minRunFrames = 12, maxGapSec = 0.25) {
+  if (!times?.length) return 0
+
+  let runStart = 0
+  let runLen = 1
+
+  for (let i = 1; i < times.length; i++) {
+    if (times[i] - times[i - 1] <= maxGapSec) {
+      runLen++
+      if (runLen >= minRunFrames) {
+        return times[runStart]
+      }
+    } else {
+      runStart = i
+      runLen = 1
+    }
+  }
+
+  // Nothing sustained — fall back to the very first frame
+  return times[0]
+}
+
+/**
  * Build a display word list for the karaoke view.
  *
  * Timing source priority (most → least accurate):
@@ -405,12 +441,12 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide) {
   if (pitchGuide?.times?.length && sourceLyrics) {
     const tokens = tokenise(sourceLyrics)
     if (tokens.length) {
-      // Clip voiced frames to start where Whisper detected the first word.
-      // pitchGuide includes ALL voiced frames — demucs leaks a little piano/
-      // guitar into the vocal track so pyin fires before the singer starts.
-      // refWords[0].start is when Whisper heard the first vocal sound, which
-      // is a reliable anchor even when Whisper got the words wrong.
-      const lyricsStartT = refWords?.[0]?.start ?? 0
+      // Find the actual vocal onset using cluster detection rather than
+      // refWords[0].start.  Whisper sometimes skips an entire verse and
+      // its first word timestamp can be seconds after the singer actually
+      // started; cluster detection correctly anchors to the first sustained
+      // phrase even in those cases.
+      const lyricsStartT = findVocalStart(pitchGuide.times)
       const voicedTimes = pitchGuide.times.filter((t) => t >= lyricsStartT)
 
       // If filtering left too few frames, fall through to refWords mapping
@@ -711,7 +747,7 @@ export default function RecordingStudio({
         ].map(({ id, label }) => (
           <button
             key={id}
-            onClick={() => { setMode(id); setHasRecording(false); setRecSeconds(0); blobRef.current = null }}
+            onClick={() => { setMode(id); setHasRecording(false); setRecTime(0); blobRef.current = null }}
             disabled={isRecording}
             className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${
               mode === id
