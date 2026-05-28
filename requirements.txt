@@ -1,0 +1,14 @@
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+librosa>=0.10.0
+torchcrepe>=0.0.20
+pydub>=0.25.1
+yt-dlp>=2023.10.13
+demucs>=4.0.0
+openai-whisper>=20231117
+numpy>=1.24.0
+scipy>=1.11.0
+torch>=2.0.0
+torchaudio<2.6
+soundfile>=0.12.1
