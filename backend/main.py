@@ -83,8 +83,16 @@ def _run_pipeline(
         update("transcribing", 80, "Transcribing lyrics with Whisper...")
         from .alignment import detect_language
         language = detect_language(vocals_path)
-        prompt = lyrics_to_prompt(lyrics) if lyrics else None
-        words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=prompt)
+        # IMPORTANT: we deliberately do NOT feed the looked-up lyrics as Whisper's
+        # initial_prompt.  Doing so biases Whisper into skipping the soft opening
+        # verse — it jumps straight to a later line, leaving the karaoke with no
+        # timestamps for the first words (they then have to be guessed, causing
+        # visible lag).  Verified A/B: WITH prompt → first word at 23.3s (verse 1
+        # dropped); WITHOUT prompt → first word at 7.6s (full coverage).
+        # We need COMPLETE, accurate word timing more than accurate text — the
+        # correct spelling is restored downstream by aligning the looked-up
+        # lyrics onto these timestamps (see buildDisplayWords / scoring).
+        words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
 
         if not words:
             logger.warning("[%s] No words transcribed — vocal track may be silent", job_id)
@@ -371,7 +379,10 @@ async def analyze(
 
 @app.post("/api/job/{job_id}/retranscribe")
 async def retranscribe(job_id: str, lyrics: str = Form(...)):
-    """Re-run Whisper on the reference vocals using user-edited lyrics as initial_prompt."""
+    """Update the reference lyrics (used as the karaoke TEXT) and refresh Whisper
+    word timing.  Like the main pipeline, transcription runs WITHOUT a lyrics
+    prompt so Whisper keeps complete, accurately-timed word coverage; the edited
+    lyrics are stored as the source text and aligned onto those timestamps."""
     if job_id not in jobs:
         raise HTTPException(404, "Job not found")
     job = jobs[job_id]
@@ -384,17 +395,15 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
         raise HTTPException(404, "Vocals file not found on disk")
 
     from .alignment import transcribe_with_timestamps
-    from .lyrics_utils import lyrics_to_prompt
 
     language = ref.get("language")
-    prompt = lyrics_to_prompt(lyrics, max_chars=500)
 
     import asyncio
     loop = asyncio.get_event_loop()
     try:
         words = await loop.run_in_executor(
             _executor,
-            lambda: transcribe_with_timestamps(vocals_path, language=language, initial_prompt=prompt),
+            lambda: transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None),
         )
     except Exception as exc:
         logger.exception("[%s] Retranscription failed", job_id)
@@ -402,7 +411,7 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
 
     ref["words"] = words
     ref["lyrics"] = lyrics
-    logger.info("[%s] Retranscribed with edited lyrics → %d words", job_id, len(words))
+    logger.info("[%s] Retranscribed (no prompt) with edited lyrics → %d words", job_id, len(words))
     return {"words": words, "lyrics": lyrics}
 
 
