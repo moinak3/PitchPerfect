@@ -83,21 +83,26 @@ def _run_pipeline(
         update("transcribing", 80, "Transcribing lyrics with Whisper...")
         from .alignment import detect_language
         language = detect_language(vocals_path)
-        prompt = lyrics_to_prompt(lyrics) if lyrics else None
-        words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=prompt)
+        # IMPORTANT: we deliberately do NOT feed the looked-up lyrics as Whisper's
+        # initial_prompt.  Doing so biases Whisper into skipping the soft opening
+        # verse — it jumps straight to a later line, leaving the karaoke with no
+        # timestamps for the first words (they then have to be guessed, causing
+        # visible lag).  Verified A/B: WITH prompt → first word at 23.3s (verse 1
+        # dropped); WITHOUT prompt → first word at 7.6s (full coverage).
+        # We need COMPLETE, accurate word timing more than accurate text — the
+        # correct spelling is restored downstream by aligning the looked-up
+        # lyrics onto these timestamps (see buildDisplayWords / scoring).
+        words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
 
         if not words:
             logger.warning("[%s] No words transcribed — vocal track may be silent", job_id)
 
         duration = float(pitch_times[-1]) if pitch_times else 0.0
 
-        # First timestamp where reference has a voiced pitch frame
-        import math
-        vocal_start_time = next(
-            (t for t, f in zip(pitch_times, pitch_hz)
-             if f is not None and not (isinstance(f, float) and math.isnan(f)) and f > 0),
-            0.0,
-        )
+        # Vocal onset = start of the first substantial vocal section (skips
+        # instrument bleed-through that demucs leaves at the confidence floor).
+        from .audio_utils import detect_vocal_sections
+        _, vocal_start_time = detect_vocal_sections(pitch_times, pitch_hz, pitch_conf)
         logger.info("[%s] Vocal start detected at %.1fs", job_id, vocal_start_time)
 
         reference = {
@@ -191,17 +196,60 @@ def get_job(job_id: str):
     job = jobs[job_id]
 
     pitch_guide = None
+    vocal_start_time = job["reference"].get("vocal_start_time", 0.0) if "reference" in job else 0.0
     if "reference" in job:
+        from .audio_utils import detect_vocal_sections
+
         raw_times = job["reference"].get("pitch_times", [])
         raw_hz = job["reference"].get("pitch_hz", [])
-        # Downsample to ~20 samples/sec (PYIN runs at ~100 Hz, so step=5)
-        step = max(1, len(raw_times) // 3000)
+        raw_conf = job["reference"].get("pitch_confidence", [])
+        words = job["reference"].get("words", [])
+
+        # Determine the time ranges that actually contain singing, so the pitch
+        # contour stays dense there while instrument bleed (piano intro, breaks)
+        # is excluded.  Whisper word spans are the most reliable vocal mask — a
+        # word exists exactly where something is sung — and crucially they KEEP
+        # soft / low-confidence singing (e.g. "I can't help") that a pitch-
+        # confidence gate would wrongly drop.  Fall back to confidence-based
+        # vocal sections only when there are no transcribed words.
+        PAD = 0.2
+        if words:
+            ranges = [(float(w["start"]) - PAD, float(w["end"]) + PAD) for w in words]
+            # merge overlapping/adjacent windows (words are time-ordered)
+            merged = []
+            for a, b in ranges:
+                if merged and a <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], b)
+                else:
+                    merged.append([a, b])
+            ranges = merged
+            vocal_start_time = float(words[0]["start"])
+        else:
+            sections, vstart = detect_vocal_sections(raw_times, raw_hz, raw_conf)
+            ranges = [[a - PAD, b + PAD] for (a, b) in sections]
+            vocal_start_time = vstart
+
+        # Keep every voiced (non-NaN) frame whose time falls inside a vocal range.
         gt, ghz = [], []
-        for i in range(0, len(raw_times), step):
+        ri = 0
+        n_ranges = len(ranges)
+        for i in range(len(raw_times)):
             h = raw_hz[i]
-            if h is not None and not (isinstance(h, float) and math.isnan(h)) and h > 0:
-                gt.append(round(raw_times[i], 3))
+            if h is None or (isinstance(h, float) and math.isnan(h)) or h <= 0:
+                continue
+            t = raw_times[i]
+            while ri < n_ranges and t > ranges[ri][1]:
+                ri += 1
+            if ri < n_ranges and t >= ranges[ri][0]:
+                gt.append(round(t, 3))
                 ghz.append(round(h, 1))
+
+        # Light downsample only if very large (keeps payload reasonable)
+        MAX_FRAMES = 8000
+        if len(gt) > MAX_FRAMES:
+            step = max(1, len(gt) // MAX_FRAMES)
+            gt = gt[::step]
+            ghz = ghz[::step]
         pitch_guide = {"times": gt, "hz": ghz}
 
     return {
@@ -212,7 +260,7 @@ def get_job(job_id: str):
         "error": job.get("error"),
         "has_reference": "reference" in job,
         "word_count": len(job["reference"]["words"]) if "reference" in job else 0,
-        "vocal_start_time": job["reference"].get("vocal_start_time", 0.0) if "reference" in job else 0.0,
+        "vocal_start_time": vocal_start_time,
         "song_duration": job["reference"].get("duration", 0.0) if "reference" in job else 0.0,
         "words": job["reference"].get("words", []) if "reference" in job else [],
         "lyrics": job["reference"].get("lyrics") if "reference" in job else None,
@@ -343,7 +391,10 @@ async def analyze(
 
 @app.post("/api/job/{job_id}/retranscribe")
 async def retranscribe(job_id: str, lyrics: str = Form(...)):
-    """Re-run Whisper on the reference vocals using user-edited lyrics as initial_prompt."""
+    """Update the reference lyrics (used as the karaoke TEXT) and refresh Whisper
+    word timing.  Like the main pipeline, transcription runs WITHOUT a lyrics
+    prompt so Whisper keeps complete, accurately-timed word coverage; the edited
+    lyrics are stored as the source text and aligned onto those timestamps."""
     if job_id not in jobs:
         raise HTTPException(404, "Job not found")
     job = jobs[job_id]
@@ -356,17 +407,15 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
         raise HTTPException(404, "Vocals file not found on disk")
 
     from .alignment import transcribe_with_timestamps
-    from .lyrics_utils import lyrics_to_prompt
 
     language = ref.get("language")
-    prompt = lyrics_to_prompt(lyrics, max_chars=500)
 
     import asyncio
     loop = asyncio.get_event_loop()
     try:
         words = await loop.run_in_executor(
             _executor,
-            lambda: transcribe_with_timestamps(vocals_path, language=language, initial_prompt=prompt),
+            lambda: transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None),
         )
     except Exception as exc:
         logger.exception("[%s] Retranscription failed", job_id)
@@ -374,7 +423,7 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
 
     ref["words"] = words
     ref["lyrics"] = lyrics
-    logger.info("[%s] Retranscribed with edited lyrics → %d words", job_id, len(words))
+    logger.info("[%s] Retranscribed (no prompt) with edited lyrics → %d words", job_id, len(words))
     return {"words": words, "lyrics": lyrics}
 
 

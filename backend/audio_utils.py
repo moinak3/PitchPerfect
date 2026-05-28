@@ -1,4 +1,5 @@
 import os
+import math
 import subprocess
 import uuid
 import logging
@@ -161,6 +162,62 @@ def extract_pitch_pyin(audio_path: str) -> Tuple[List[float], List[float], List[
         audio_path,
     )
     return times.tolist(), f0.tolist(), voiced_prob.tolist()
+
+
+def detect_vocal_sections(
+    times: List[float],
+    hz: List[float],
+    conf: List[float],
+    conf_threshold: float = 0.2,
+    gap_s: float = 2.0,
+    min_frames: int = 25,
+) -> Tuple[List[Tuple[float, float]], float]:
+    """
+    Locate where the singer is actually singing in the reference vocal track.
+
+    pyin reports a pitch for *every* frame, including instrument bleed-through
+    that demucs failed to fully remove.  Bleed sits at the confidence floor
+    (~0.01), while genuine voiced singing produces confidence peaks well above
+    0.2.  We therefore:
+
+      1. Keep only confident voiced frames (conf >= conf_threshold).
+      2. Group them into sections, splitting wherever there is a silence /
+         instrumental gap longer than gap_s seconds.
+      3. Treat a section as "real singing" only if it contains at least
+         min_frames confident frames (filters out brief background blips).
+
+    Returns:
+        (sections, vocal_start_time)
+        sections          — list of (start_s, end_s) for substantial sections
+        vocal_start_time  — start of the first substantial section, else 0.0
+    """
+    confident_times = [
+        times[i]
+        for i in range(len(times))
+        if hz[i] is not None
+        and not (isinstance(hz[i], float) and math.isnan(hz[i]))
+        and hz[i] > 0
+        and (conf[i] if i < len(conf) else 1.0) >= conf_threshold
+    ]
+    if not confident_times:
+        return [], 0.0
+
+    sections: List[Tuple[float, float, int]] = []
+    s_start = s_end = confident_times[0]
+    s_len = 1
+    for t in confident_times[1:]:
+        if t - s_end > gap_s:
+            sections.append((s_start, s_end, s_len))
+            s_start = t
+            s_len = 1
+        else:
+            s_len += 1
+        s_end = t
+    sections.append((s_start, s_end, s_len))
+
+    substantial = [(a, b) for (a, b, n) in sections if n >= min_frames]
+    vocal_start = substantial[0][0] if substantial else 0.0
+    return substantial, vocal_start
 
 
 def extract_pitch(audio_path: str, denoise: bool = False) -> Tuple[List[float], List[float], List[float]]:
