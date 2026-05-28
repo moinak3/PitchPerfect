@@ -91,13 +91,10 @@ def _run_pipeline(
 
         duration = float(pitch_times[-1]) if pitch_times else 0.0
 
-        # First timestamp where reference has a voiced pitch frame
-        import math
-        vocal_start_time = next(
-            (t for t, f in zip(pitch_times, pitch_hz)
-             if f is not None and not (isinstance(f, float) and math.isnan(f)) and f > 0),
-            0.0,
-        )
+        # Vocal onset = start of the first substantial vocal section (skips
+        # instrument bleed-through that demucs leaves at the confidence floor).
+        from .audio_utils import detect_vocal_sections
+        _, vocal_start_time = detect_vocal_sections(pitch_times, pitch_hz, pitch_conf)
         logger.info("[%s] Vocal start detected at %.1fs", job_id, vocal_start_time)
 
         reference = {
@@ -191,36 +188,48 @@ def get_job(job_id: str):
     job = jobs[job_id]
 
     pitch_guide = None
+    vocal_start_time = job["reference"].get("vocal_start_time", 0.0) if "reference" in job else 0.0
     if "reference" in job:
+        from .audio_utils import detect_vocal_sections
+
         raw_times = job["reference"].get("pitch_times", [])
         raw_hz = job["reference"].get("pitch_hz", [])
         raw_conf = job["reference"].get("pitch_confidence", [])
-        # Step 1 — confidence filter first, THEN downsample.
-        # pyin emits low-confidence (~0.010) estimates for every frame, including
-        # instrument bleed-through.  Only frames at >= 0.2 are genuinely voiced.
-        # Filtering BEFORE downsampling preserves the density of voiced runs (e.g.
-        # a 0.5-second sung syllable stays as ~50 consecutive close-together frames),
-        # which the frontend cluster detector relies on to locate vocal onset.
-        CONF_THRESHOLD = 0.2
-        voiced_t, voiced_hz = [], []
+
+        # Detect where the singer is actually singing.  This separates the two
+        # concerns that per-frame confidence alone cannot:
+        #   - WHERE vocals are (confident frames clustered into sections)
+        #   - the DENSE pitch contour to draw (all voiced frames in those sections)
+        sections, vstart = detect_vocal_sections(raw_times, raw_hz, raw_conf)
+        vocal_start_time = vstart
+
+        # Build the display contour: every voiced (non-NaN) frame that falls
+        # inside a detected vocal section (padded slightly).  Low per-frame
+        # confidence frames are KEPT here so the melody line stays smooth — they
+        # are only excluded when they sit in pure-instrumental regions (no nearby
+        # confident frame ⇒ not inside any section).
+        PAD = 0.4
+        ranges = [(a - PAD, b + PAD) for (a, b) in sections]
+        gt, ghz = [], []
+        ri = 0
         for i in range(len(raw_times)):
             h = raw_hz[i]
-            conf = raw_conf[i] if i < len(raw_conf) else 1.0
-            if (h is not None
-                    and not (isinstance(h, float) and math.isnan(h))
-                    and h > 0
-                    and conf >= CONF_THRESHOLD):
-                voiced_t.append(raw_times[i])
-                voiced_hz.append(h)
-        # Step 2 — light downsample only if the voiced list is very large
-        # (keeps the JSON payload under ~100 KB for typical 3-4 min songs).
-        MAX_FRAMES = 4000
-        if len(voiced_t) > MAX_FRAMES:
-            step = len(voiced_t) // MAX_FRAMES
-            voiced_t  = voiced_t[::step]
-            voiced_hz = voiced_hz[::step]
-        gt  = [round(t, 3) for t in voiced_t]
-        ghz = [round(h, 1) for h in voiced_hz]
+            if h is None or (isinstance(h, float) and math.isnan(h)) or h <= 0:
+                continue
+            t = raw_times[i]
+            # Advance section pointer (raw_times is sorted ascending)
+            while ri < len(ranges) and t > ranges[ri][1]:
+                ri += 1
+            if ri < len(ranges) and t >= ranges[ri][0]:
+                gt.append(round(t, 3))
+                ghz.append(round(h, 1))
+
+        # Light downsample only if very large (keeps payload reasonable)
+        MAX_FRAMES = 8000
+        if len(gt) > MAX_FRAMES:
+            step = max(1, len(gt) // MAX_FRAMES)
+            gt = gt[::step]
+            ghz = ghz[::step]
         pitch_guide = {"times": gt, "hz": ghz}
 
     return {
@@ -231,7 +240,7 @@ def get_job(job_id: str):
         "error": job.get("error"),
         "has_reference": "reference" in job,
         "word_count": len(job["reference"]["words"]) if "reference" in job else 0,
-        "vocal_start_time": job["reference"].get("vocal_start_time", 0.0) if "reference" in job else 0.0,
+        "vocal_start_time": vocal_start_time,
         "song_duration": job["reference"].get("duration", 0.0) if "reference" in job else 0.0,
         "words": job["reference"].get("words", []) if "reference" in job else [],
         "lyrics": job["reference"].get("lyrics") if "reference" in job else None,

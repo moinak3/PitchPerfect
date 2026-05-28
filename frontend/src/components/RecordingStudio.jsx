@@ -373,142 +373,175 @@ function LyricsReviewPanel({ refWords, sourceLyrics, songTitle, artist, jobId, o
   )
 }
 
+// Tokenise: split on whitespace, strip punctuation, drop empty tokens
+function tokeniseLyrics(text) {
+  return text
+    .replace(/\n+/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/[.,!?;:()\[\]"'—\-]/g, '').trim())
+    .filter(Boolean)
+}
+
+const normWord = (s) => s.toLowerCase().replace(/[^a-z0-9']/g, '')
+
 /**
- * Detect the first substantial vocal section in the pitchGuide timeline.
- *
- * Strategy: split the voiced frames into "sections" wherever there is a gap
- * larger than SECTION_GAP_S seconds (i.e. a silence / instrumental break).
- * Return the start of the first section that has at least MIN_PHRASE_FRAMES
- * voiced frames — this is what we call "the singer starting to sing."
- *
- * Why this beats a simple cluster detector:
- *  - The backend (conf ≥ 0.2 filter) already removes low-energy bleed-through
- *    from instruments, but brief pre-song vocal fragments or background hum can
- *    still pass.  Those typically form small sections (< 50 frames) separated
- *    from the main vocal body by > 2 s of silence.
- *  - The main vocal section — even the very first phrase — will have many
- *    consecutive pitched frames and easily surpasses MIN_PHRASE_FRAMES.
- *  - Works even when Whisper skips an entire verse (refWords[0] starts late):
- *    the pitch data contains the real vocal onset independent of ASR output.
+ * Align two word sequences via longest-common-subsequence and return the
+ * matched index pairs [{ si, ri }] (si = sourceLyrics index, ri = refWords index).
+ * Robust to Whisper insertions/deletions (e.g. a whole skipped verse shows up
+ * as source words with no ref match).
  */
-function findVocalStart(times) {
-  if (!times?.length) return 0
+function lcsPairs(a, b) {
+  const n = a.length
+  const m = b.length
+  if (!n || !m) return []
 
-  // Gap that separates two distinct vocal sections (silence / instrumental break)
-  const SECTION_GAP_S = 2.0
-  // Minimum voiced frames for a section to be considered "real singing"
-  // (~50 frames ≈ 0.5 s of continuous vocals at 100 fps)
-  const MIN_PHRASE_FRAMES = 50
-
-  let sectionStart = 0
-  let sectionLen = 1
-
-  for (let i = 1; i < times.length; i++) {
-    if (times[i] - times[i - 1] > SECTION_GAP_S) {
-      if (sectionLen >= MIN_PHRASE_FRAMES) {
-        return times[sectionStart]
-      }
-      sectionStart = i
-      sectionLen = 1
-    } else {
-      sectionLen++
+  // dp[i][j] = LCS length of a[i:] and b[j:]
+  const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] =
+        a[i] === b[j]
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1])
     }
   }
 
-  // Check the last (or only) section
-  if (sectionLen >= MIN_PHRASE_FRAMES) {
-    return times[sectionStart]
+  const pairs = []
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      pairs.push({ si: i, ri: j })
+      i++
+      j++
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      i++
+    } else {
+      j++
+    }
   }
-
-  // Fallback: no substantial section found — use the very first frame
-  return times[0]
+  return pairs
 }
 
 /**
- * Build a display word list for the karaoke view.
+ * Build a display word list (each { word, start, end }) for the karaoke view.
  *
- * Timing source priority (most → least accurate):
+ * Timing comes from aligning the corrected sourceLyrics against Whisper's
+ * word-level timestamps (refWords).  Whisper timing is accurate for the words
+ * it heard; we fill the gaps:
+ *   - words BEFORE the first matched word are spread from vocalStartTime
+ *     (the true vocal onset detected from pitch) up to that first anchor —
+ *     this fixes the case where Whisper skips an entire opening verse.
+ *   - words BETWEEN two matched anchors are linearly interpolated by index.
+ *   - words AFTER the last anchor are extrapolated at the average word pace.
  *
- *  1. pitchGuide (voiced frames from pyin, ~20 fps) — the most reliable timing
- *     data we have.  pitchGuide.times[] contains the wall-clock positions of every
- *     voiced frame in the reference recording.  We project M lyrics words onto
- *     these N frames via index-proportional mapping.  Because frames only exist
- *     where there IS singing, instrumental gaps are automatically skipped and words
- *     land in the right part of the song even when Whisper hallucinated the text.
- *
- *  2. refWords timestamps (Whisper) — used only when pitchGuide is unavailable.
- *     Index-proportional mapping from M lyrics words onto N Whisper slots.
- *
- *  3. refWords directly — fallback when no sourceLyrics is available.
+ * Falls back to proportional mapping over pitchGuide / refWords when alignment
+ * isn't possible (no source lyrics, no matches, etc.).
  */
-function buildDisplayWords(refWords, sourceLyrics, pitchGuide) {
-  if (!refWords?.length && !pitchGuide?.times?.length) return []
+function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 0) {
+  const hasRef = refWords?.length > 0
 
-  // Tokenise: split on whitespace, strip punctuation, drop empty tokens
-  const tokenise = (text) =>
-    text
-      .replace(/\n+/g, ' ')
-      .split(/\s+/)
-      .map((w) => w.replace(/[.,!?;:()\[\]"'—\-]/g, '').trim())
-      .filter(Boolean)
+  // No corrected lyrics → just use Whisper words directly.
+  if (!sourceLyrics) return hasRef ? refWords : []
 
-  // ── Priority 1: pitchGuide-based timing ─────────────────────────────────
-  if (pitchGuide?.times?.length && sourceLyrics) {
-    const tokens = tokenise(sourceLyrics)
-    if (tokens.length) {
-      // Find the actual vocal onset using cluster detection rather than
-      // refWords[0].start.  Whisper sometimes skips an entire verse and
-      // its first word timestamp can be seconds after the singer actually
-      // started; cluster detection correctly anchors to the first sustained
-      // phrase even in those cases.
-      const lyricsStartT = findVocalStart(pitchGuide.times)
-      const voicedTimes = pitchGuide.times.filter((t) => t >= lyricsStartT)
+  const tokens = tokeniseLyrics(sourceLyrics)
+  if (!tokens.length) return hasRef ? refWords : []
 
-      // If filtering left too few frames, fall through to refWords mapping
-      if (voicedTimes.length >= tokens.length) {
-        const N = voicedTimes.length
-        const M = tokens.length
+  // ── Fallback: no Whisper words — spread tokens over voiced pitch frames ──
+  if (!hasRef) {
+    const times = pitchGuide?.times
+    if (times?.length) {
+      const voiced = times.filter((t) => t >= vocalStartTime)
+      const N = voiced.length || times.length
+      const src = voiced.length ? voiced : times
+      const M = tokens.length
+      return tokens.map((word, i) => {
+        const fi = Math.min(Math.floor((i * N) / M), N - 1)
+        const nfi = Math.min(Math.floor(((i + 1) * N) / M), N - 1)
+        return { word, start: src[fi], end: nfi !== fi ? src[nfi] : src[fi] + 0.4 }
+      })
+    }
+    return []
+  }
 
-        return tokens.map((word, i) => {
-          const fi = Math.min(Math.round((i * N) / M), N - 1)
-          const nextFi = Math.min(Math.round(((i + 1) * N) / M), N - 1)
-          return {
-            word,
-            start: voicedTimes[fi],
-            end: nextFi !== fi ? voicedTimes[nextFi] : voicedTimes[fi] + 0.4,
-          }
-        })
-      }
+  // ── Align corrected lyrics ↔ Whisper words ──────────────────────────────
+  const srcNorm = tokens.map(normWord)
+  const refNorm = refWords.map((w) => normWord(w.word))
+  const pairs = lcsPairs(srcNorm, refNorm)
+
+  // No anchors matched → proportional mapping over Whisper words.
+  if (!pairs.length) {
+    const N = refWords.length
+    const M = tokens.length
+    return tokens.map((word, i) => {
+      const ri = Math.min(Math.floor((i * N) / M), N - 1)
+      return { word, start: refWords[ri].start, end: refWords[ri].end }
+    })
+  }
+
+  const M = tokens.length
+  const starts = new Array(M).fill(null)
+
+  // Anchor times from matched pairs.
+  for (const { si, ri } of pairs) {
+    starts[si] = refWords[ri].start
+  }
+
+  const firstAnchor = pairs[0]
+  const lastAnchor = pairs[pairs.length - 1]
+  const firstT = refWords[firstAnchor.ri].start
+  const lastT = refWords[lastAnchor.ri].start
+
+  // Average seconds-per-word across the matched span (for extrapolation).
+  const spanWords = lastAnchor.si - firstAnchor.si
+  const avgDur =
+    spanWords > 0 ? Math.max(0.12, (lastT - firstT) / spanWords) : 0.4
+
+  // 1) Leading words (before first anchor): spread from vocalStartTime → firstT.
+  const leadStart = Math.min(vocalStartTime || 0, firstT)
+  for (let i = 0; i < firstAnchor.si; i++) {
+    starts[i] =
+      firstAnchor.si > 0
+        ? leadStart + ((firstT - leadStart) * i) / firstAnchor.si
+        : firstT
+  }
+
+  // 2) Interpolate between consecutive anchors.
+  for (let p = 0; p < pairs.length - 1; p++) {
+    const a = pairs[p]
+    const b = pairs[p + 1]
+    const ta = refWords[a.ri].start
+    const tb = refWords[b.ri].start
+    const span = b.si - a.si
+    for (let k = 1; k < span; k++) {
+      starts[a.si + k] = ta + ((tb - ta) * k) / span
     }
   }
 
-  // ── Priority 2: refWords timestamp mapping ───────────────────────────────
-  if (!refWords?.length) return []
-  if (!sourceLyrics) return refWords
+  // 3) Trailing words (after last anchor): extrapolate at average pace.
+  for (let i = lastAnchor.si + 1; i < M; i++) {
+    starts[i] = lastT + (i - lastAnchor.si) * avgDur
+  }
 
-  const tokens = tokenise(sourceLyrics)
-  if (!tokens.length) return refWords
+  // Guarantee monotonic non-decreasing starts (alignment noise can invert a few).
+  for (let i = 1; i < M; i++) {
+    if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1]
+  }
 
-  const N = refWords.length
-  const M = tokens.length
-
-  return tokens.map((word, i) => {
-    const ri = Math.min(Math.round((i * N) / M), N - 1)
-    return {
-      word,
-      start: refWords[ri].start,
-      end: refWords[ri].end,
-    }
-  })
+  return tokens.map((word, i) => ({
+    word,
+    start: starts[i],
+    end: i + 1 < M ? Math.max(starts[i] + 0.12, starts[i + 1]) : starts[i] + avgDur,
+  }))
 }
 
 // Karaoke-style lyrics display: shows ~9 words centered on the current word,
 // with past/current/upcoming words styled differently.
 // Uses sourceLyrics text (if available) timed via pitchGuide voiced frames.
-function KaraokeDisplay({ refWords, sourceLyrics, pitchGuide, recTime }) {
+function KaraokeDisplay({ refWords, sourceLyrics, pitchGuide, recTime, vocalStartTime }) {
   const displayWords = useMemo(
-    () => buildDisplayWords(refWords, sourceLyrics, pitchGuide),
-    [refWords, sourceLyrics, pitchGuide]
+    () => buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime),
+    [refWords, sourceLyrics, pitchGuide, vocalStartTime]
   )
 
   if (!displayWords.length) return null
@@ -803,7 +836,7 @@ export default function RecordingStudio({
       {isRecording && (
         <div className="bg-[#080808] border border-[#1C1C1C] rounded-xl overflow-hidden mb-4">
           {/* Karaoke lyrics line */}
-          <KaraokeDisplay refWords={refWords} sourceLyrics={sourceLyrics} pitchGuide={pitchGuide} recTime={recTime} />
+          <KaraokeDisplay refWords={refWords} sourceLyrics={sourceLyrics} pitchGuide={pitchGuide} recTime={recTime} vocalStartTime={vocalStartTime} />
           {/* Pitch curve */}
           <PitchGuide refWords={refWords} recTime={recTime} pitchGuide={pitchGuide} />
         </div>
