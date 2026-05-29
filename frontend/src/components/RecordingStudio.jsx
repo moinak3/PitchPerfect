@@ -740,13 +740,13 @@ export default function RecordingStudio({
   const [countdown, setCountdown] = useState(null)
   // recTime is a float driven by audioRef.currentTime for smooth sync
   const [recTime, setRecTime] = useState(0)
-  // Manual sync offset (seconds): the singer's perceived "now" is recTime - syncOffset.
-  // Positive value delays the highlight (use when the highlight feels early).
-  // Negative value advances it (when the highlight feels late).
-  // Compensates for Whisper word-timestamp imprecision on slow sung notes and
-  // audio-output latency, which together can leave a consistent ~1-word offset
-  // that's only really fixable with a per-user trim.
-  const [syncOffset, setSyncOffset] = useState(1.0)
+  // Manual sync offset (seconds): the singer's perceived "now" is
+  // recTime - (syncOffset + autoLatency).  Positive delays the highlight,
+  // negative advances it.  autoLatency is auto-detected from AudioContext
+  // when recording starts; syncOffset is the user-tunable residual.
+  const [syncOffset, setSyncOffset] = useState(0.3)
+  const [autoLatency, setAutoLatency] = useState(0)
+  const effectiveOffset = syncOffset + autoLatency
 
   // Aligned karaoke words (with per-word target notes) — computed once per data
   // change and shared by both the karaoke line and the melody guide.
@@ -823,6 +823,16 @@ export default function RecordingStudio({
     analyser.fftSize = 1024
     source.connect(analyser)
     analyserRef.current = analyser
+
+    // Auto-detect output latency (sound takes this long to reach the speakers
+    // after audio.currentTime advances).  Apply it as a base offset so the
+    // manual slider only handles residuals device-to-device.  Bluetooth and
+    // some HDMI outputs report meaningful values (50-300 ms); built-in speakers
+    // often report ~0 (well-cancelled by the OS).
+    const detectedLatency = audioCtx.outputLatency || audioCtx.baseLatency || 0
+    if (detectedLatency > 0.01 && detectedLatency < 0.6) {
+      setAutoLatency(detectedLatency)
+    }
 
     // MediaRecorder
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -974,15 +984,17 @@ export default function RecordingStudio({
       {isRecording && (
         <div className="bg-[#080808] border border-[#1C1C1C] rounded-xl overflow-hidden mb-4">
           {/* Karaoke lyrics line */}
-          <KaraokeDisplay displayWords={displayWords} recTime={recTime} syncOffset={syncOffset} />
+          <KaraokeDisplay displayWords={displayWords} recTime={recTime} syncOffset={effectiveOffset} />
           {/* Melody guide — per-word target notes on a stable pitch scale */}
-          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} syncOffset={syncOffset} />
+          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} syncOffset={effectiveOffset} />
           {/* Manual sync trim — compensates for Whisper timing imprecision + audio latency */}
           <div className="flex items-center justify-between px-3 py-2 border-t border-[#1C1C1C] bg-[#060606]">
             <div className="flex flex-col">
               <span className="text-[9px] text-gray-700 tracking-widest">LYRICS SYNC</span>
               <span className="text-[9px] text-gray-800">
-                {syncOffset > 0 ? 'Highlight delayed' : syncOffset < 0 ? 'Highlight advanced' : 'No offset'}
+                {autoLatency > 0
+                  ? `+${autoLatency.toFixed(2)}s auto · ${effectiveOffset > 0 ? '+' : ''}${effectiveOffset.toFixed(2)}s total`
+                  : (syncOffset > 0 ? 'Highlight delayed' : syncOffset < 0 ? 'Highlight advanced' : 'No offset')}
               </span>
             </div>
             <div className="flex items-center gap-2">
