@@ -131,18 +131,22 @@ function attachWordNotes(words, pitchGuide) {
   return words
 }
 
-function PitchGuide({ displayWords, recTime, pitchGuide }) {
+function PitchGuide({ displayWords, recTime, pitchGuide, syncOffset = 0 }) {
   const W = 640, H = 230, PT = 12, PB = 18, PL = 32, PR = 8
   const cW = W - PL - PR
   const cH = H - PT - PB
 
+  // Apply the manual sync trim so the cursor and "current note" track what the
+  // user hears, not raw audio.currentTime.
+  const effT = recTime - syncOffset
+
   // Cursor sits at 30% from left so we mostly see what's coming
   const CURSOR_FRAC = 0.3
   const windowDur = 8          // total seconds visible
-  const windowStart = recTime - windowDur * CURSOR_FRAC
-  const windowEnd   = recTime + windowDur * (1 - CURSOR_FRAC)
+  const windowStart = effT - windowDur * CURSOR_FRAC
+  const windowEnd   = effT + windowDur * (1 - CURSOR_FRAC)
   const tx = t => PL + ((t - windowStart) / windowDur) * cW
-  const cursorX = tx(recTime)
+  const cursorX = tx(effT)
 
   // STABLE vertical scale: fixed to the whole song's vocal range so a given
   // note always sits at the same height (no per-frame rescaling).  This is what
@@ -186,8 +190,8 @@ function PitchGuide({ displayWords, recTime, pitchGuide }) {
   }, [displayWords, windowStart, windowEnd])
 
   const currentWord = useMemo(
-    () => (displayWords || []).find(w => recTime >= w.start && recTime < w.end) || null,
-    [displayWords, recTime]
+    () => (displayWords || []).find(w => effT >= w.start && effT < w.end) || null,
+    [displayWords, effT]
   )
 
   if (!displayWords?.length) return null
@@ -244,8 +248,8 @@ function PitchGuide({ displayWords, recTime, pitchGuide }) {
           const x2 = Math.min(PL + cW, tx(w.end))
           const bw = Math.max(6, x2 - x1 - 2)
           const y = ty(w.midi)
-          const isCurrent = recTime >= w.start && recTime < w.end
-          const isPast = recTime > w.end
+          const isCurrent = effT >= w.start && effT < w.end
+          const isPast = effT > w.end
           const fill = isCurrent ? '#F59E0B' : isPast ? '#2C3A35' : '#10B981'
           const op = isCurrent ? 1 : isPast ? 0.5 : 0.85
           return (
@@ -661,16 +665,19 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
 // Karaoke-style lyrics display: shows ~9 words centered on the current word,
 // with past/current/upcoming words styled differently.
 // Uses sourceLyrics text (if available) timed via pitchGuide voiced frames.
-function KaraokeDisplay({ displayWords, recTime }) {
+function KaraokeDisplay({ displayWords, recTime, syncOffset = 0 }) {
   if (!displayWords?.length) return null
+
+  // Apply manual sync trim so highlight tracks what the user actually hears.
+  const effT = recTime - syncOffset
 
   // Find the current word index
   const currentIdx = displayWords.findIndex(
-    (w) => recTime >= w.start && recTime < w.end
+    (w) => effT >= w.start && effT < w.end
   )
   // If between words, find the next upcoming word and anchor just before it
   const upcomingIdx =
-    currentIdx === -1 ? displayWords.findIndex((w) => w.start > recTime) : -1
+    currentIdx === -1 ? displayWords.findIndex((w) => w.start > effT) : -1
 
   const focusIdx =
     currentIdx !== -1
@@ -693,14 +700,14 @@ function KaraokeDisplay({ displayWords, recTime }) {
       {slice.map((w, i) => {
         const absIdx = sliceStart + i
         const isCurrent = absIdx === currentIdx
-        const isPast = recTime > w.end
+        const isPastEff = effT > w.end
         return (
           <div key={absIdx} className="flex flex-col items-center justify-end">
             <span
               className={`text-lg font-bold leading-none transition-all duration-150 select-none ${
                 isCurrent
                   ? 'text-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]'
-                  : isPast
+                  : isPastEff
                   ? 'text-gray-700'
                   : 'text-gray-500'
               }`}
@@ -710,7 +717,7 @@ function KaraokeDisplay({ displayWords, recTime }) {
             {/* Target note label (the melody position is shown in the guide below) */}
             <span
               className={`text-[9px] font-mono leading-none mt-1 select-none ${
-                isCurrent ? 'text-amber-300/90' : isPast ? 'text-gray-800' : 'text-emerald-700/70'
+                isCurrent ? 'text-amber-300/90' : isPastEff ? 'text-gray-800' : 'text-emerald-700/70'
               }`}
             >
               {w.note || '·'}
@@ -742,6 +749,13 @@ export default function RecordingStudio({
   const [countdown, setCountdown] = useState(null)
   // recTime is a float driven by audioRef.currentTime for smooth sync
   const [recTime, setRecTime] = useState(0)
+  // Manual sync offset (seconds): the singer's perceived "now" is recTime - syncOffset.
+  // Positive value delays the highlight (use when the highlight feels early).
+  // Negative value advances it (when the highlight feels late).
+  // Compensates for Whisper word-timestamp imprecision on slow sung notes and
+  // audio-output latency, which together can leave a consistent ~1-word offset
+  // that's only really fixable with a per-user trim.
+  const [syncOffset, setSyncOffset] = useState(0.6)
 
   // Aligned karaoke words (with per-word target notes) — computed once per data
   // change and shared by both the karaoke line and the melody guide.
@@ -969,9 +983,38 @@ export default function RecordingStudio({
       {isRecording && (
         <div className="bg-[#080808] border border-[#1C1C1C] rounded-xl overflow-hidden mb-4">
           {/* Karaoke lyrics line */}
-          <KaraokeDisplay displayWords={displayWords} recTime={recTime} />
+          <KaraokeDisplay displayWords={displayWords} recTime={recTime} syncOffset={syncOffset} />
           {/* Melody guide — per-word target notes on a stable pitch scale */}
-          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} />
+          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} syncOffset={syncOffset} />
+          {/* Manual sync trim — compensates for Whisper timing imprecision + audio latency */}
+          <div className="flex items-center justify-between px-3 py-2 border-t border-[#1C1C1C] bg-[#060606]">
+            <div className="flex flex-col">
+              <span className="text-[9px] text-gray-700 tracking-widest">LYRICS SYNC</span>
+              <span className="text-[9px] text-gray-800">
+                {syncOffset > 0 ? 'Highlight delayed' : syncOffset < 0 ? 'Highlight advanced' : 'No offset'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSyncOffset((v) => Math.max(-1.0, +(v - 0.1).toFixed(2)))}
+                className="w-8 h-8 rounded bg-[#161616] hover:bg-[#222] text-amber-400 font-mono text-base leading-none flex items-center justify-center"
+                title="Earlier (highlight fires sooner)"
+              >−</button>
+              <span className="text-xs font-mono text-gray-200 tabular-nums w-14 text-center">
+                {syncOffset >= 0 ? '+' : ''}{syncOffset.toFixed(2)}s
+              </span>
+              <button
+                onClick={() => setSyncOffset((v) => Math.min(2.0, +(v + 0.1).toFixed(2)))}
+                className="w-8 h-8 rounded bg-[#161616] hover:bg-[#222] text-amber-400 font-mono text-base leading-none flex items-center justify-center"
+                title="Later (highlight fires later)"
+              >+</button>
+              <button
+                onClick={() => setSyncOffset(0)}
+                className="ml-1 text-[10px] text-gray-600 hover:text-gray-400 px-1.5 py-1"
+                title="Reset to 0"
+              >reset</button>
+            </div>
+          </div>
         </div>
       )}
 
