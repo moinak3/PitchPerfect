@@ -563,34 +563,25 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
   const starts = new Array(S).fill(null)
   const ends = new Array(S).fill(null)
 
-  // Pass 1 — tokens mapped to a Whisper word.
-  //  • A word's ONSET absorbs any Whisper words skipped since the previous
-  //    mapped word.  Whisper often splits one sung word into an extra fragment
-  //    (e.g. it heard "better"+"say" for a single held "say"); LCS only matches
-  //    the exact "say", so without this the highlight would wait for the LATER
-  //    fragment and lag ~1 word behind the audio.  Claiming from the first
-  //    unclaimed Whisper word makes the highlight fire exactly when the word
-  //    starts being sung.  Genuine pauses are preserved: there the Whisper words
-  //    are already adjacent (nothing skipped) but separated by a time gap.
-  //  • Consecutive tokens that share one Whisper word split its interval evenly,
-  //    so several lyric words under one transcribed word light up in sequence.
+  // Pass 1 — tokens mapped to a Whisper word.  Each word inherits the exact
+  // [start, end] of the Whisper word it aligns to (the most reliable indicator
+  // of when that word is sung), and consecutive tokens sharing one Whisper word
+  // split its interval evenly.  We do NOT pull onsets earlier to absorb skipped
+  // Whisper fragments — that turned out to fire highlights ahead of the audio.
   {
     let i = 0
-    let prevRi = -1
     while (i < S) {
       const ri = refIdxForSrc[i]
       if (ri == null) { i++; continue }
       let j = i
       while (j < S && refIdxForSrc[j] === ri) j++
       const g = j - i
-      const onsetRef = prevRi >= 0 ? Math.min(prevRi + 1, ri) : ri
-      const s = refWords[onsetRef].start
+      const s = refWords[ri].start
       const e = Math.max(refWords[ri].end, s + 0.12)
       for (let k = 0; k < g; k++) {
         starts[i + k] = s + ((e - s) * k) / g
         ends[i + k] = s + ((e - s) * (k + 1)) / g
       }
-      prevRi = ri
       i = j
     }
   }
@@ -755,7 +746,7 @@ export default function RecordingStudio({
   // Compensates for Whisper word-timestamp imprecision on slow sung notes and
   // audio-output latency, which together can leave a consistent ~1-word offset
   // that's only really fixable with a per-user trim.
-  const [syncOffset, setSyncOffset] = useState(0.6)
+  const [syncOffset, setSyncOffset] = useState(1.0)
 
   // Aligned karaoke words (with per-word target notes) — computed once per data
   // change and shared by both the karaoke line and the melody guide.
