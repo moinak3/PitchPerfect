@@ -740,13 +740,11 @@ export default function RecordingStudio({
   const [countdown, setCountdown] = useState(null)
   // recTime is a float driven by audioRef.currentTime for smooth sync
   const [recTime, setRecTime] = useState(0)
-  // Manual sync offset (seconds): the singer's perceived "now" is
-  // recTime - (syncOffset + autoLatency).  Positive delays the highlight,
-  // negative advances it.  autoLatency is auto-detected from AudioContext
-  // when recording starts; syncOffset is the user-tunable residual.
-  const [syncOffset, setSyncOffset] = useState(0.3)
+  // Sync offset (seconds): the singer's perceived "now" is recTime - autoLatency.
+  // Auto-detected from the AudioContext when recording starts (the OS-reported
+  // sound-to-speakers delay).  Word starts themselves are refined acoustically
+  // in the backend pipeline, so no manual trim is exposed.
   const [autoLatency, setAutoLatency] = useState(0)
-  const effectiveOffset = syncOffset + autoLatency
 
   // Aligned karaoke words (with per-word target notes) — computed once per data
   // change and shared by both the karaoke line and the melody guide.
@@ -984,40 +982,9 @@ export default function RecordingStudio({
       {isRecording && (
         <div className="bg-[#080808] border border-[#1C1C1C] rounded-xl overflow-hidden mb-4">
           {/* Karaoke lyrics line */}
-          <KaraokeDisplay displayWords={displayWords} recTime={recTime} syncOffset={effectiveOffset} />
+          <KaraokeDisplay displayWords={displayWords} recTime={recTime} syncOffset={autoLatency} />
           {/* Melody guide — per-word target notes on a stable pitch scale */}
-          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} syncOffset={effectiveOffset} />
-          {/* Manual sync trim — compensates for Whisper timing imprecision + audio latency */}
-          <div className="flex items-center justify-between px-3 py-2 border-t border-[#1C1C1C] bg-[#060606]">
-            <div className="flex flex-col">
-              <span className="text-[9px] text-gray-700 tracking-widest">LYRICS SYNC</span>
-              <span className="text-[9px] text-gray-800">
-                {autoLatency > 0
-                  ? `+${autoLatency.toFixed(2)}s auto · ${effectiveOffset > 0 ? '+' : ''}${effectiveOffset.toFixed(2)}s total`
-                  : (syncOffset > 0 ? 'Highlight delayed' : syncOffset < 0 ? 'Highlight advanced' : 'No offset')}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSyncOffset((v) => Math.max(-1.0, +(v - 0.1).toFixed(2)))}
-                className="w-8 h-8 rounded bg-[#161616] hover:bg-[#222] text-amber-400 font-mono text-base leading-none flex items-center justify-center"
-                title="Earlier (highlight fires sooner)"
-              >−</button>
-              <span className="text-xs font-mono text-gray-200 tabular-nums w-14 text-center">
-                {syncOffset >= 0 ? '+' : ''}{syncOffset.toFixed(2)}s
-              </span>
-              <button
-                onClick={() => setSyncOffset((v) => Math.min(2.0, +(v + 0.1).toFixed(2)))}
-                className="w-8 h-8 rounded bg-[#161616] hover:bg-[#222] text-amber-400 font-mono text-base leading-none flex items-center justify-center"
-                title="Later (highlight fires later)"
-              >+</button>
-              <button
-                onClick={() => setSyncOffset(0)}
-                className="ml-1 text-[10px] text-gray-600 hover:text-gray-400 px-1.5 py-1"
-                title="Reset to 0"
-              >reset</button>
-            </div>
-          </div>
+          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} syncOffset={autoLatency} />
         </div>
       )}
 
