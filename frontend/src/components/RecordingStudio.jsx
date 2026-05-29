@@ -550,14 +550,37 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
     fillRange(last.si + 1, S, last.ri + 1, R) // trailing
   }
 
-  // Resolve each token's start time from its mapped Whisper word.
+  // Assign each token a real [start, end] from the Whisper word it maps to.
+  // Crucially we use the Whisper word's OWN end — not the next token's start —
+  // so the highlight tracks exactly when each word is sung: it holds through a
+  // sustained note, and during an instrumental pause it waits (no word lit) and
+  // only lights the next word when it is actually sung (a delayed word stays
+  // delayed).
   const starts = new Array(S).fill(null)
-  for (let i = 0; i < S; i++) {
-    const ri = refIdxForSrc[i]
-    if (ri != null) starts[i] = refWords[ri].start
+  const ends = new Array(S).fill(null)
+
+  // Pass 1 — tokens mapped to a Whisper word.  Consecutive tokens that share
+  // one Whisper word split its interval evenly, so several lyric words under a
+  // single transcribed word light up in sequence rather than all at once.
+  {
+    let i = 0
+    while (i < S) {
+      const ri = refIdxForSrc[i]
+      if (ri == null) { i++; continue }
+      let j = i
+      while (j < S && refIdxForSrc[j] === ri) j++
+      const g = j - i
+      const s = refWords[ri].start
+      const e = Math.max(refWords[ri].end, s + 0.12)
+      for (let k = 0; k < g; k++) {
+        starts[i + k] = s + ((e - s) * k) / g
+        ends[i + k] = s + ((e - s) * (k + 1)) / g
+      }
+      i = j
+    }
   }
 
-  // Locate first/last anchored tokens to bound the gap-filling.
+  // Locate first/last assigned token to bound the gap filling.
   let firstKnown = -1
   let lastKnown = -1
   for (let i = 0; i < S; i++) {
@@ -568,57 +591,58 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
   }
 
   if (firstKnown < 0) {
-    // No mapping at all — spread proportionally over Whisper timeline.
+    // Nothing mapped — spread proportionally over the Whisper timeline.
     for (let i = 0; i < S; i++) {
-      starts[i] = refWords[Math.min(Math.floor((i * R) / S), R - 1)].start
+      const ri = Math.min(Math.floor((i * R) / S), R - 1)
+      starts[i] = refWords[ri].start
+      ends[i] = Math.max(starts[i] + 0.2, refWords[ri].end)
     }
   } else {
-    const span = lastKnown - firstKnown
-    const avgDur =
-      span > 0 ? Math.max(0.12, (starts[lastKnown] - starts[firstKnown]) / span) : 0.45
-    // Leading tokens Whisper never produced (it skipped the opening verse):
-    // anchor the first token to the true vocal onset (from pitch) and spread
-    // linearly up to the first Whisper-anchored word.  This is far more accurate
-    // than stepping backward at the average pace, which would land the opening
-    // words several seconds late.
-    const leadStart = Math.min(vocalStartTime || 0, starts[firstKnown])
+    // Pass 2 — leading tokens Whisper never produced (skipped opening verse):
+    // spread from the true vocal onset up to the first assigned token.
     if (firstKnown > 0) {
-      if (leadStart < starts[firstKnown]) {
-        for (let i = 0; i < firstKnown; i++) {
-          starts[i] = leadStart + ((starts[firstKnown] - leadStart) * i) / firstKnown
-        }
-      } else {
-        for (let i = firstKnown - 1; i >= 0; i--) starts[i] = Math.max(0, starts[i + 1] - avgDur)
+      const t1 = starts[firstKnown]
+      const t0 = Math.min(vocalStartTime || 0, t1)
+      for (let k = 0; k < firstKnown; k++) {
+        starts[k] = t0 + ((t1 - t0) * k) / firstKnown
+        ends[k] = t0 + ((t1 - t0) * (k + 1)) / firstKnown
       }
     }
-    // Trailing tokens: step forward.
-    for (let i = lastKnown + 1; i < S; i++) starts[i] = starts[i - 1] + avgDur
-    // Interior gaps (Whisper merged words): linear interpolate between anchors.
+    // Pass 3 — interior null gaps (Whisper merged/skipped a word): tile the gap
+    // between the previous end and the next start.
     let i = firstKnown + 1
     while (i < lastKnown) {
       if (starts[i] == null) {
         let j = i
-        while (j < S && starts[j] == null) j++
-        const t0 = starts[i - 1]
+        while (j <= lastKnown && starts[j] == null) j++
+        const t0 = ends[i - 1]
         const t1 = starts[j]
-        const n = j - (i - 1)
-        for (let k = i; k < j; k++) starts[k] = t0 + ((t1 - t0) * (k - (i - 1))) / n
+        const span = j - i
+        for (let x = 0; x < span; x++) {
+          starts[i + x] = t0 + ((t1 - t0) * x) / span
+          ends[i + x] = t0 + ((t1 - t0) * (x + 1)) / span
+        }
         i = j
       } else {
         i++
       }
     }
+    // Pass 4 — trailing tokens after the last Whisper word: step forward.
+    const span = lastKnown - firstKnown
+    const avgDur =
+      span > 0 ? Math.max(0.18, (starts[lastKnown] - starts[firstKnown]) / span) : 0.45
+    for (let i = lastKnown + 1; i < S; i++) {
+      starts[i] = ends[i - 1]
+      ends[i] = starts[i] + avgDur
+    }
   }
 
-  // Enforce non-decreasing starts (alignment noise can invert a few).
+  // Sanity: non-decreasing starts, and a small minimum duration per word.
   for (let i = 1; i < S; i++) if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1]
+  for (let i = 0; i < S; i++) if (ends[i] == null || ends[i] < starts[i] + 0.1) ends[i] = starts[i] + 0.25
 
   return attachWordNotes(
-    tokens.map((word, i) => ({
-      word,
-      start: starts[i],
-      end: i + 1 < S ? Math.max(starts[i] + 0.12, starts[i + 1]) : starts[i] + 0.45,
-    })),
+    tokens.map((word, i) => ({ word, start: starts[i], end: ends[i] })),
     pitchGuide
   )
 }
