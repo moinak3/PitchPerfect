@@ -132,7 +132,7 @@ function attachWordNotes(words, pitchGuide) {
 }
 
 function PitchGuide({ displayWords, recTime, pitchGuide }) {
-  const W = 640, H = 132, PT = 10, PB = 16, PL = 30, PR = 8
+  const W = 640, H = 230, PT = 12, PB = 18, PL = 32, PR = 8
   const cW = W - PL - PR
   const cH = H - PT - PB
 
@@ -213,7 +213,7 @@ function PitchGuide({ displayWords, recTime, pitchGuide }) {
         {cLines.map(m => (
           <g key={m}>
             <line x1={PL} y1={ty(m)} x2={PL + cW} y2={ty(m)} stroke="#1A1A1A" strokeWidth="1" />
-            <text x={PL - 3} y={ty(m) + 3} textAnchor="end" fontSize="8" fill="#444" fontFamily="monospace">
+            <text x={PL - 3} y={ty(m) + 3} textAnchor="end" fontSize="9" fill="#555" fontFamily="monospace">
               {midiToNote(m)}
             </text>
           </g>
@@ -250,10 +250,11 @@ function PitchGuide({ displayWords, recTime, pitchGuide }) {
           const op = isCurrent ? 1 : isPast ? 0.5 : 0.85
           return (
             <g key={i}>
-              <rect x={x1} y={y - 3} width={bw} height={6} rx={3} fill={fill} fillOpacity={op} />
-              {(isCurrent || bw > 18) && (
-                <text x={x1 + bw / 2} y={y - 6} textAnchor="middle" fontSize="9"
-                  fill={isCurrent ? '#FCD34D' : '#5B6B65'} fontFamily="monospace">
+              <rect x={x1} y={y - 4} width={bw} height={8} rx={4} fill={fill} fillOpacity={op} />
+              {(isCurrent || bw > 16) && (
+                <text x={x1 + bw / 2} y={y - 8} textAnchor="middle" fontSize="11"
+                  fill={isCurrent ? '#FCD34D' : '#6B7B75'} fontFamily="monospace"
+                  fontWeight={isCurrent ? 'bold' : 'normal'}>
                   {w.note}
                 </text>
               )}
