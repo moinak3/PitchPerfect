@@ -93,15 +93,24 @@ function lowerBound(arr, target) {
   return lo
 }
 
-// Median reference pitch (Hz) within [a, b]. null if no voiced frames there.
-function medianHz(times, hz, a, b) {
+// Octave-robust median reference pitch (Hz) within [a, b]. null if no voiced
+// frames.  pyin frequently emits octave-jumped estimates (½× or 2× the true
+// pitch); we take the median, then keep only frames within ~half an octave of
+// it and re-median, which discards those octave outliers.
+function robustHz(times, hz, a, b) {
   const vals = []
   for (let i = lowerBound(times, a); i < times.length && times[i] <= b; i++) {
     if (hz[i] > 0) vals.push(hz[i])
   }
   if (!vals.length) return null
   vals.sort((x, y) => x - y)
-  return vals[vals.length >> 1]
+  let med = vals[vals.length >> 1]
+  const kept = vals.filter((v) => v >= med * 0.72 && v <= med * 1.4)
+  if (kept.length >= 2) {
+    kept.sort((x, y) => x - y)
+    med = kept[kept.length >> 1]
+  }
+  return med
 }
 
 // Attach a target note (the reference pitch the singer should hit) to every
@@ -113,149 +122,149 @@ function attachWordNotes(words, pitchGuide) {
   const hz = pitchGuide?.hz
   if (!times?.length || !hz?.length) return words
   for (const w of words) {
-    let m = medianHz(times, hz, w.start - 0.05, w.end + 0.05)
-    if (m == null) m = medianHz(times, hz, w.start - 0.25, w.end + 0.3)
+    let m = robustHz(times, hz, w.start - 0.05, w.end + 0.05)
+    if (m == null) m = robustHz(times, hz, w.start - 0.25, w.end + 0.3)
     w.hz = m || null
-    w.note = m ? midiToNote(hzToMidi(m)) : null
+    w.midi = m ? hzToMidi(m) : null
+    w.note = m ? midiToNote(w.midi) : null
   }
   return words
 }
 
-function PitchGuide({ refWords, recTime, pitchGuide }) {
-  const W = 640, H = 80, PT = 8, PB = 16, PL = 36, PR = 8
+function PitchGuide({ displayWords, recTime, pitchGuide }) {
+  const W = 640, H = 230, PT = 12, PB = 18, PL = 32, PR = 8
   const cW = W - PL - PR
   const cH = H - PT - PB
 
-  // Cursor sits at 25% from left so we mostly see what's coming
-  const CURSOR_FRAC = 0.25
-  const windowDur = 9          // total seconds visible
+  // Cursor sits at 30% from left so we mostly see what's coming
+  const CURSOR_FRAC = 0.3
+  const windowDur = 8          // total seconds visible
   const windowStart = recTime - windowDur * CURSOR_FRAC
   const windowEnd   = recTime + windowDur * (1 - CURSOR_FRAC)
-
-  const tx = t => PL + ((t - windowStart) / (windowDur)) * cW
+  const tx = t => PL + ((t - windowStart) / windowDur) * cW
   const cursorX = tx(recTime)
 
-  const { pts, midiMin, midiMax, noteAtCursor } = useMemo(() => {
-    if (!pitchGuide?.times?.length) return { pts: [], midiMin: 60, midiMax: 72, noteAtCursor: null }
-
-    const { times, hz } = pitchGuide
-    const inWindow = []
-    for (let i = 0; i < times.length; i++) {
-      if (times[i] < windowStart - 0.5 || times[i] > windowEnd + 0.5) continue
-      const m = hzToMidi(hz[i])
-      if (m) inWindow.push({ t: times[i], m })
-    }
-    if (!inWindow.length) return { pts: [], midiMin: 60, midiMax: 72, noteAtCursor: null }
-
-    const midiVals = inWindow.map(p => p.m)
-    const mMin = Math.floor(Math.min(...midiVals)) - 0.5
-    const mMax = Math.ceil(Math.max(...midiVals)) + 0.5
-    const ty = m => PT + cH - ((m - mMin) / (mMax - mMin)) * cH
-
-    // Build polyline segments (break on time gaps > 0.4s)
-    const segs = []
-    let cur = []
-    for (let i = 0; i < inWindow.length; i++) {
-      if (cur.length && inWindow[i].t - inWindow[i - 1].t > 0.4) { segs.push(cur); cur = [] }
-      cur.push({ x: tx(inWindow[i].t), y: ty(inWindow[i].m), t: inWindow[i].t, m: inWindow[i].m })
-    }
-    if (cur.length) segs.push(cur)
-
-    // Note at cursor position
-    let closest = null, bestDist = Infinity
-    for (const p of inWindow) {
-      const d = Math.abs(p.t - recTime)
-      if (d < bestDist) { bestDist = d; closest = p }
-    }
-    const noteAtCursor = closest && bestDist < 0.5 ? midiToNote(closest.m) : null
-
-    return { pts: segs, midiMin: mMin, midiMax: mMax, ty, noteAtCursor }
-  }, [pitchGuide, windowStart, windowEnd, recTime])
+  // STABLE vertical scale: fixed to the whole song's vocal range so a given
+  // note always sits at the same height (no per-frame rescaling).  This is what
+  // makes the melodic up/down progression actually readable.
+  const { midiMin, midiMax } = useMemo(() => {
+    const ms = (displayWords || []).map(w => w.midi).filter(m => m != null)
+    if (!ms.length) return { midiMin: 55, midiMax: 67 }
+    let lo = Math.min(...ms), hi = Math.max(...ms)
+    if (hi - lo < 7) { const c = (lo + hi) / 2; lo = c - 3.5; hi = c + 3.5 } // min ~half octave
+    return { midiMin: Math.floor(lo) - 1, midiMax: Math.ceil(hi) + 1 }
+  }, [displayWords])
 
   const ty = m => PT + cH - ((m - midiMin) / (midiMax - midiMin)) * cH
 
-  // Visible words in window — used for boundary tick lines only (labels moved to KaraokeDisplay)
-  const visibleWords = useMemo(() => {
-    if (!refWords?.length) return []
-    return refWords.filter(w => w.end >= windowStart && w.start <= windowEnd)
-  }, [refWords, windowStart, windowEnd])
+  // Live reference pitch curve (faint), octave-clamped to the stable range.
+  const curve = useMemo(() => {
+    if (!pitchGuide?.times?.length) return []
+    const { times, hz } = pitchGuide
+    const segs = []
+    let cur = []
+    for (let i = 0; i < times.length; i++) {
+      const t = times[i]
+      if (t < windowStart - 0.5) continue
+      if (t > windowEnd + 0.5) break
+      let m = hzToMidi(hz[i])
+      if (m == null) continue
+      // fold octave outliers into the visible range
+      while (m < midiMin - 0.5) m += 12
+      while (m > midiMax + 0.5) m -= 12
+      if (cur.length && t - cur[cur.length - 1].t > 0.35) { segs.push(cur); cur = [] }
+      cur.push({ x: tx(t), y: ty(m), t })
+    }
+    if (cur.length) segs.push(cur)
+    return segs
+  }, [pitchGuide, windowStart, windowEnd, midiMin, midiMax])
 
-  if (!pitchGuide?.times?.length) return null
+  // Per-word note blocks in the visible window.
+  const visWords = useMemo(() => {
+    if (!displayWords?.length) return []
+    return displayWords.filter(w => w.midi != null && w.end >= windowStart && w.start <= windowEnd)
+  }, [displayWords, windowStart, windowEnd])
 
-  // C-note Y labels in range
-  const cNotes = []
-  for (let m = Math.ceil(midiMin); m <= midiMax; m++) {
-    if (m % 12 === 0) cNotes.push(m)
-  }
+  const currentWord = useMemo(
+    () => (displayWords || []).find(w => recTime >= w.start && recTime < w.end) || null,
+    [displayWords, recTime]
+  )
+
+  if (!displayWords?.length) return null
+
+  // Octave (C) gridlines within range
+  const cLines = []
+  for (let m = Math.ceil(midiMin); m <= midiMax; m++) if (m % 12 === 0) cLines.push(m)
 
   return (
     <div className="border-t border-[#1C1C1C]">
       <div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
-        <span className="text-[9px] text-gray-700 tracking-widest">PITCH GUIDE</span>
-        {noteAtCursor && (
+        <span className="text-[9px] text-gray-700 tracking-widest">MELODY GUIDE</span>
+        {currentWord?.note && (
           <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-            ♪ {noteAtCursor} now
+            ♪ sing {currentWord.note}
           </span>
         )}
       </div>
       <svg width={W} height={H} className="block w-full" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-        {/* Background */}
         <rect x={PL} y={PT} width={cW} height={cH} fill="#050505" />
 
-        {/* Word bands */}
-        {visibleWords.map((w, i) => {
-          const x1 = Math.max(PL, tx(w.start))
-          const x2 = Math.min(PL + cW, tx(w.end))
-          const isCurrent = recTime >= w.start && recTime < w.end
-          const isPast = recTime > w.end
-          return (
-            <rect key={i} x={x1} y={PT} width={Math.max(0, x2 - x1)} height={cH}
-              fill={isCurrent ? 'rgba(245,158,11,0.08)' : isPast ? 'rgba(255,255,255,0.015)' : 'rgba(16,185,129,0.03)'}
-            />
-          )
-        })}
-
-        {/* Word boundary tick lines */}
-        {visibleWords.map((w, i) => (
-          <line key={i} x1={tx(w.start)} y1={PT + cH - 5} x2={tx(w.start)} y2={PT + cH}
-            stroke="#2A2A2A" strokeWidth="1"
-          />
-        ))}
-
-        {/* C-note horizontal guides */}
-        {cNotes.map(m => (
+        {/* Octave gridlines */}
+        {cLines.map(m => (
           <g key={m}>
             <line x1={PL} y1={ty(m)} x2={PL + cW} y2={ty(m)} stroke="#1A1A1A" strokeWidth="1" />
-            <text x={PL - 3} y={ty(m) + 3} textAnchor="end" fontSize="8" fill="#444" fontFamily="monospace">
+            <text x={PL - 3} y={ty(m) + 3} textAnchor="end" fontSize="9" fill="#555" fontFamily="monospace">
               {midiToNote(m)}
             </text>
           </g>
         ))}
 
-        {/* Pitch curve — past segments dimmer */}
-        {pts.map((seg, si) => {
-          const segMidT = (seg[0].t + seg[seg.length - 1].t) / 2
-          const isPast = segMidT < recTime - 0.2
-          const points = seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+        {/* Faint live reference pitch curve (within-word movement) */}
+        {curve.map((seg, si) => (
+          <polyline key={si} points={seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+            fill="none" stroke="#10B981" strokeWidth="1" strokeOpacity="0.22"
+            strokeLinejoin="round" strokeLinecap="round"
+          />
+        ))}
+
+        {/* Connector line between consecutive word notes — shows the progression */}
+        {visWords.length > 1 && (
+          <polyline
+            points={visWords.map(w => {
+              const xc = (Math.max(PL, tx(w.start)) + Math.min(PL + cW, tx(w.end))) / 2
+              return `${xc.toFixed(1)},${ty(w.midi).toFixed(1)}`
+            }).join(' ')}
+            fill="none" stroke="#3A4A44" strokeWidth="1" strokeDasharray="2 2"
+          />
+        )}
+
+        {/* Per-word note blocks */}
+        {visWords.map((w, i) => {
+          const x1 = Math.max(PL, tx(w.start))
+          const x2 = Math.min(PL + cW, tx(w.end))
+          const bw = Math.max(6, x2 - x1 - 2)
+          const y = ty(w.midi)
+          const isCurrent = recTime >= w.start && recTime < w.end
+          const isPast = recTime > w.end
+          const fill = isCurrent ? '#F59E0B' : isPast ? '#2C3A35' : '#10B981'
+          const op = isCurrent ? 1 : isPast ? 0.5 : 0.85
           return (
-            <polyline key={si} points={points} fill="none"
-              stroke="#10B981"
-              strokeWidth={isPast ? "1.5" : "2.5"}
-              strokeOpacity={isPast ? 0.25 : 0.9}
-              strokeLinejoin="round" strokeLinecap="round"
-            />
+            <g key={i}>
+              <rect x={x1} y={y - 4} width={bw} height={8} rx={4} fill={fill} fillOpacity={op} />
+              {(isCurrent || bw > 16) && (
+                <text x={x1 + bw / 2} y={y - 8} textAnchor="middle" fontSize="11"
+                  fill={isCurrent ? '#FCD34D' : '#6B7B75'} fontFamily="monospace"
+                  fontWeight={isCurrent ? 'bold' : 'normal'}>
+                  {w.note}
+                </text>
+              )}
+            </g>
           )
         })}
 
         {/* "Now" cursor */}
-        <line x1={cursorX} y1={PT} x2={cursorX} y2={PT + cH}
-          stroke="#F59E0B" strokeWidth="1.5" strokeOpacity="0.7"
-        />
-        {/* Cursor triangle at top */}
-        <polygon
-          points={`${cursorX - 4},${PT} ${cursorX + 4},${PT} ${cursorX},${PT + 7}`}
-          fill="#F59E0B" fillOpacity="0.7"
-        />
+        <line x1={cursorX} y1={PT} x2={cursorX} y2={PT + cH} stroke="#F59E0B" strokeWidth="1.5" strokeOpacity="0.7" />
+        <polygon points={`${cursorX - 4},${PT} ${cursorX + 4},${PT} ${cursorX},${PT + 7}`} fill="#F59E0B" fillOpacity="0.7" />
 
         {/* Axis */}
         <line x1={PL} y1={PT} x2={PL} y2={PT + cH} stroke="#222" strokeWidth="1" />
@@ -541,14 +550,37 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
     fillRange(last.si + 1, S, last.ri + 1, R) // trailing
   }
 
-  // Resolve each token's start time from its mapped Whisper word.
+  // Assign each token a real [start, end] from the Whisper word it maps to.
+  // Crucially we use the Whisper word's OWN end — not the next token's start —
+  // so the highlight tracks exactly when each word is sung: it holds through a
+  // sustained note, and during an instrumental pause it waits (no word lit) and
+  // only lights the next word when it is actually sung (a delayed word stays
+  // delayed).
   const starts = new Array(S).fill(null)
-  for (let i = 0; i < S; i++) {
-    const ri = refIdxForSrc[i]
-    if (ri != null) starts[i] = refWords[ri].start
+  const ends = new Array(S).fill(null)
+
+  // Pass 1 — tokens mapped to a Whisper word.  Consecutive tokens that share
+  // one Whisper word split its interval evenly, so several lyric words under a
+  // single transcribed word light up in sequence rather than all at once.
+  {
+    let i = 0
+    while (i < S) {
+      const ri = refIdxForSrc[i]
+      if (ri == null) { i++; continue }
+      let j = i
+      while (j < S && refIdxForSrc[j] === ri) j++
+      const g = j - i
+      const s = refWords[ri].start
+      const e = Math.max(refWords[ri].end, s + 0.12)
+      for (let k = 0; k < g; k++) {
+        starts[i + k] = s + ((e - s) * k) / g
+        ends[i + k] = s + ((e - s) * (k + 1)) / g
+      }
+      i = j
+    }
   }
 
-  // Locate first/last anchored tokens to bound the gap-filling.
+  // Locate first/last assigned token to bound the gap filling.
   let firstKnown = -1
   let lastKnown = -1
   for (let i = 0; i < S; i++) {
@@ -559,57 +591,58 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
   }
 
   if (firstKnown < 0) {
-    // No mapping at all — spread proportionally over Whisper timeline.
+    // Nothing mapped — spread proportionally over the Whisper timeline.
     for (let i = 0; i < S; i++) {
-      starts[i] = refWords[Math.min(Math.floor((i * R) / S), R - 1)].start
+      const ri = Math.min(Math.floor((i * R) / S), R - 1)
+      starts[i] = refWords[ri].start
+      ends[i] = Math.max(starts[i] + 0.2, refWords[ri].end)
     }
   } else {
-    const span = lastKnown - firstKnown
-    const avgDur =
-      span > 0 ? Math.max(0.12, (starts[lastKnown] - starts[firstKnown]) / span) : 0.45
-    // Leading tokens Whisper never produced (it skipped the opening verse):
-    // anchor the first token to the true vocal onset (from pitch) and spread
-    // linearly up to the first Whisper-anchored word.  This is far more accurate
-    // than stepping backward at the average pace, which would land the opening
-    // words several seconds late.
-    const leadStart = Math.min(vocalStartTime || 0, starts[firstKnown])
+    // Pass 2 — leading tokens Whisper never produced (skipped opening verse):
+    // spread from the true vocal onset up to the first assigned token.
     if (firstKnown > 0) {
-      if (leadStart < starts[firstKnown]) {
-        for (let i = 0; i < firstKnown; i++) {
-          starts[i] = leadStart + ((starts[firstKnown] - leadStart) * i) / firstKnown
-        }
-      } else {
-        for (let i = firstKnown - 1; i >= 0; i--) starts[i] = Math.max(0, starts[i + 1] - avgDur)
+      const t1 = starts[firstKnown]
+      const t0 = Math.min(vocalStartTime || 0, t1)
+      for (let k = 0; k < firstKnown; k++) {
+        starts[k] = t0 + ((t1 - t0) * k) / firstKnown
+        ends[k] = t0 + ((t1 - t0) * (k + 1)) / firstKnown
       }
     }
-    // Trailing tokens: step forward.
-    for (let i = lastKnown + 1; i < S; i++) starts[i] = starts[i - 1] + avgDur
-    // Interior gaps (Whisper merged words): linear interpolate between anchors.
+    // Pass 3 — interior null gaps (Whisper merged/skipped a word): tile the gap
+    // between the previous end and the next start.
     let i = firstKnown + 1
     while (i < lastKnown) {
       if (starts[i] == null) {
         let j = i
-        while (j < S && starts[j] == null) j++
-        const t0 = starts[i - 1]
+        while (j <= lastKnown && starts[j] == null) j++
+        const t0 = ends[i - 1]
         const t1 = starts[j]
-        const n = j - (i - 1)
-        for (let k = i; k < j; k++) starts[k] = t0 + ((t1 - t0) * (k - (i - 1))) / n
+        const span = j - i
+        for (let x = 0; x < span; x++) {
+          starts[i + x] = t0 + ((t1 - t0) * x) / span
+          ends[i + x] = t0 + ((t1 - t0) * (x + 1)) / span
+        }
         i = j
       } else {
         i++
       }
     }
+    // Pass 4 — trailing tokens after the last Whisper word: step forward.
+    const span = lastKnown - firstKnown
+    const avgDur =
+      span > 0 ? Math.max(0.18, (starts[lastKnown] - starts[firstKnown]) / span) : 0.45
+    for (let i = lastKnown + 1; i < S; i++) {
+      starts[i] = ends[i - 1]
+      ends[i] = starts[i] + avgDur
+    }
   }
 
-  // Enforce non-decreasing starts (alignment noise can invert a few).
+  // Sanity: non-decreasing starts, and a small minimum duration per word.
   for (let i = 1; i < S; i++) if (starts[i] < starts[i - 1]) starts[i] = starts[i - 1]
+  for (let i = 0; i < S; i++) if (ends[i] == null || ends[i] < starts[i] + 0.1) ends[i] = starts[i] + 0.25
 
   return attachWordNotes(
-    tokens.map((word, i) => ({
-      word,
-      start: starts[i],
-      end: i + 1 < S ? Math.max(starts[i] + 0.12, starts[i + 1]) : starts[i] + 0.45,
-    })),
+    tokens.map((word, i) => ({ word, start: starts[i], end: ends[i] })),
     pitchGuide
   )
 }
@@ -617,13 +650,8 @@ function buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime = 
 // Karaoke-style lyrics display: shows ~9 words centered on the current word,
 // with past/current/upcoming words styled differently.
 // Uses sourceLyrics text (if available) timed via pitchGuide voiced frames.
-function KaraokeDisplay({ refWords, sourceLyrics, pitchGuide, recTime, vocalStartTime }) {
-  const displayWords = useMemo(
-    () => buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime),
-    [refWords, sourceLyrics, pitchGuide, vocalStartTime]
-  )
-
-  if (!displayWords.length) return null
+function KaraokeDisplay({ displayWords, recTime }) {
+  if (!displayWords?.length) return null
 
   // Find the current word index
   const currentIdx = displayWords.findIndex(
@@ -649,38 +677,14 @@ function KaraokeDisplay({ refWords, sourceLyrics, pitchGuide, recTime, vocalStar
   const sliceEnd = Math.min(displayWords.length, focusIdx + AFTER + 1)
   const slice = displayWords.slice(sliceStart, sliceEnd)
 
-  // Vertical offset for each word's note — maps its pitch within the visible
-  // window so you can *see* the melody rise and fall across the words.
-  const midis = slice.map((w) => (w.hz ? hzToMidi(w.hz) : null)).filter((m) => m != null)
-  const mLo = midis.length ? Math.min(...midis) : 0
-  const mHi = midis.length ? Math.max(...midis) : 1
-  const noteLift = (hz) => {
-    if (!hz || mHi === mLo) return 0
-    // Higher pitch → lifted further up (max ~18px)
-    return Math.round(((hzToMidi(hz) - mLo) / (mHi - mLo)) * 18)
-  }
-
   return (
-    <div className="flex flex-wrap items-end justify-center gap-x-3 gap-y-2 px-4 py-3 min-h-[68px]">
+    <div className="flex flex-wrap items-end justify-center gap-x-3 gap-y-1 px-4 py-3 min-h-[52px]">
       {slice.map((w, i) => {
         const absIdx = sliceStart + i
         const isCurrent = absIdx === currentIdx
         const isPast = recTime > w.end
         return (
           <div key={absIdx} className="flex flex-col items-center justify-end">
-            {/* Target note for this word */}
-            <span
-              className={`text-[10px] font-mono leading-none mb-1 transition-all duration-150 select-none ${
-                isCurrent
-                  ? 'text-emerald-300'
-                  : isPast
-                  ? 'text-gray-700'
-                  : 'text-emerald-700/80'
-              }`}
-              style={{ transform: `translateY(${-noteLift(w.hz)}px)` }}
-            >
-              {w.note || '·'}
-            </span>
             <span
               className={`text-lg font-bold leading-none transition-all duration-150 select-none ${
                 isCurrent
@@ -691,6 +695,14 @@ function KaraokeDisplay({ refWords, sourceLyrics, pitchGuide, recTime, vocalStar
               }`}
             >
               {w.word}
+            </span>
+            {/* Target note label (the melody position is shown in the guide below) */}
+            <span
+              className={`text-[9px] font-mono leading-none mt-1 select-none ${
+                isCurrent ? 'text-amber-300/90' : isPast ? 'text-gray-800' : 'text-emerald-700/70'
+              }`}
+            >
+              {w.note || '·'}
             </span>
           </div>
         )
@@ -719,6 +731,13 @@ export default function RecordingStudio({
   const [countdown, setCountdown] = useState(null)
   // recTime is a float driven by audioRef.currentTime for smooth sync
   const [recTime, setRecTime] = useState(0)
+
+  // Aligned karaoke words (with per-word target notes) — computed once per data
+  // change and shared by both the karaoke line and the melody guide.
+  const displayWords = useMemo(
+    () => buildDisplayWords(refWords, sourceLyrics, pitchGuide, vocalStartTime),
+    [refWords, sourceLyrics, pitchGuide, vocalStartTime]
+  )
   const [hasRecording, setHasRecording] = useState(false)
   const [micError, setMicError] = useState(null)
   const [mode, setMode] = useState('live') // 'live' | 'upload'
@@ -939,9 +958,9 @@ export default function RecordingStudio({
       {isRecording && (
         <div className="bg-[#080808] border border-[#1C1C1C] rounded-xl overflow-hidden mb-4">
           {/* Karaoke lyrics line */}
-          <KaraokeDisplay refWords={refWords} sourceLyrics={sourceLyrics} pitchGuide={pitchGuide} recTime={recTime} vocalStartTime={vocalStartTime} />
-          {/* Pitch curve */}
-          <PitchGuide refWords={refWords} recTime={recTime} pitchGuide={pitchGuide} />
+          <KaraokeDisplay displayWords={displayWords} recTime={recTime} />
+          {/* Melody guide — per-word target notes on a stable pitch scale */}
+          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} />
         </div>
       )}
 
