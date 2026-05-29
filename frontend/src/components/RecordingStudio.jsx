@@ -205,7 +205,7 @@ function PitchGuide({ displayWords, recTime, pitchGuide, syncOffset = 0 }) {
       <div className="flex items-center justify-between px-3 pt-1.5 pb-0.5">
         <span className="text-[9px] text-gray-700 tracking-widest">MELODY GUIDE</span>
         {currentWord?.note && (
-          <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+          <span className="text-[10px] font-mono text-brand-300 bg-brand-900/40 border border-brand-700/40 px-2 py-0.5 rounded">
             ♪ sing {currentWord.note}
           </span>
         )}
@@ -328,23 +328,23 @@ function LyricsReviewPanel({ refWords, sourceLyrics, songTitle, artist, jobId, o
   }
 
   return (
-    <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl mb-4 overflow-hidden">
+    <div className="bg-white border border-gray-200 rounded-xl mb-4 overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[#111] transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-brand-50/60 transition-colors"
       >
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-600 tracking-widest font-semibold">LYRICS CHECK</span>
           {savedOk ? (
-            <span className="text-[9px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded">
+            <span className="text-[9px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-full">
               ✓ retranscribed
             </span>
           ) : hasSource ? (
-            <span className="text-[9px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded">
+            <span className="text-[9px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-full">
               verified from web
             </span>
           ) : (
-            <span className="text-[9px] bg-amber-500/10 border border-amber-500/20 text-amber-600 px-2 py-0.5 rounded">
+            <span className="text-[9px] bg-brand-50 border border-brand-200 text-brand-700 px-2 py-0.5 rounded-full">
               whisper only — add artist+title for better accuracy
             </span>
           )}
@@ -353,48 +353,48 @@ function LyricsReviewPanel({ refWords, sourceLyrics, songTitle, artist, jobId, o
           {!editing && (
             <span
               onClick={(e) => { e.stopPropagation(); startEdit() }}
-              className="text-[10px] text-amber-500/70 hover:text-amber-400 transition-colors cursor-pointer px-1"
+              className="text-[10px] text-brand-700 hover:text-brand-800 transition-colors cursor-pointer px-1 font-medium"
             >
               Edit
             </span>
           )}
-          <span className="text-gray-600 text-xs">{open ? '▲' : '▼'}</span>
+          <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
         </div>
       </button>
 
       {open && (
-        <div className="px-4 pb-4 border-t border-[#1A1A1A] pt-3 space-y-3">
+        <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-3">
           {editing ? (
             <div className="space-y-2">
-              <div className="text-[9px] text-amber-500/70 tracking-widest font-semibold">
+              <div className="text-[9px] text-brand-700 tracking-widest font-semibold">
                 EDIT LYRICS — corrections will retranscribe the reference
               </div>
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
                 rows={10}
-                className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-amber-500/60 rounded-lg p-3 text-xs text-gray-300 leading-relaxed resize-y outline-none transition-colors font-mono"
+                className="w-full bg-brand-50/40 border border-gray-300 focus:border-brand-600 focus:ring-2 focus:ring-brand-100 rounded-lg p-3 text-xs text-black leading-relaxed resize-y outline-none transition-all font-mono"
               />
               {saveError && (
-                <p className="text-red-400 text-xs">{saveError}</p>
+                <p className="text-red-600 text-xs">{saveError}</p>
               )}
               <div className="flex gap-2">
                 <button
                   onClick={cancelEdit}
                   disabled={saving}
-                  className="px-4 py-2 text-xs border border-[#2A2A2A] hover:border-[#444] text-gray-500 hover:text-gray-300 rounded-lg transition-colors"
+                  className="px-4 py-2 text-xs border border-gray-300 hover:border-gray-500 text-gray-600 hover:text-black rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={saveAndRetranscribe}
                   disabled={saving || !editText.trim()}
-                  className="flex-1 px-4 py-2 text-xs bg-amber-500 hover:bg-amber-400 disabled:bg-[#1A1A1A] disabled:text-gray-600 text-black font-bold rounded-lg transition-colors"
+                  className="flex-1 px-4 py-2 text-xs bg-brand-700 hover:bg-brand-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold rounded-lg transition-colors"
                 >
                   {saving ? 'Retranscribing…' : 'Save & Retranscribe'}
                 </button>
               </div>
-              <p className="text-[10px] text-gray-700">
+              <p className="text-[10px] text-gray-500">
                 Whisper will re-run on the reference vocals using your lyrics as a guide. Takes 30–60 s.
               </p>
             </div>
@@ -402,19 +402,19 @@ function LyricsReviewPanel({ refWords, sourceLyrics, songTitle, artist, jobId, o
             <>
               {hasSource && (
                 <div>
-                  <div className="text-[9px] text-emerald-500/70 tracking-widest mb-1.5 font-semibold">
+                  <div className="text-[9px] text-emerald-700 tracking-widest mb-1.5 font-semibold">
                     SOURCE LYRICS{songTitle ? ` — ${artist ? artist + ' · ' : ''}${songTitle}` : ''}
                   </div>
-                  <div className="max-h-40 overflow-y-auto text-xs text-gray-400 leading-relaxed whitespace-pre-wrap bg-[#0A0A0A] rounded-lg p-3 border border-[#1A1A1A]">
+                  <div className="max-h-40 overflow-y-auto text-xs text-gray-700 leading-relaxed whitespace-pre-wrap bg-brand-50/40 rounded-lg p-3 border border-brand-100">
                     {sourceLyrics}
                   </div>
                 </div>
               )}
               <div>
-                <div className="text-[9px] text-gray-600 tracking-widest mb-1.5 font-semibold">
+                <div className="text-[9px] text-gray-500 tracking-widest mb-1.5 font-semibold">
                   DETECTED BY WHISPER
                 </div>
-                <div className="max-h-32 overflow-y-auto text-xs text-gray-500 leading-relaxed bg-[#0A0A0A] rounded-lg p-3 border border-[#1A1A1A]">
+                <div className="max-h-32 overflow-y-auto text-xs text-gray-600 leading-relaxed bg-gray-50 rounded-lg p-3 border border-gray-200">
                   {detectedText}
                 </div>
               </div>
@@ -909,12 +909,12 @@ export default function RecordingStudio({
   return (
     <div className="max-w-2xl mx-auto animate-fade-up">
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-amber-400 mb-1">Recording Studio</h2>
-        <p className="text-gray-500 text-sm">
+        <h2 className="classic-heading text-4xl font-semibold text-black mb-2">Recording Studio</h2>
+        <p className="text-gray-600 text-sm">
           Press REC, then sing along to the song playing through your speakers.
         </p>
         {vocalStartTime > 5 && (
-          <p className="mt-2 text-xs text-amber-600">
+          <p className="mt-2 text-xs text-brand-700">
             Vocals start at {fmt(vocalStartTime)} — sing through to the end for the best score
             {songDuration > 0 && ` (song is ${fmt(songDuration)})`}.
           </p>
@@ -934,7 +934,7 @@ export default function RecordingStudio({
       )}
 
       {/* Live / Upload mode toggle */}
-      <div className="flex gap-1 bg-[#0A0A0A] border border-[#1C1C1C] rounded-xl p-1 mb-4">
+      <div className="flex gap-1 bg-brand-50 border border-brand-100 rounded-xl p-1 mb-4">
         {[
           { id: 'live', label: '● Record Live' },
           { id: 'upload', label: '↑ Upload File' },
@@ -945,8 +945,8 @@ export default function RecordingStudio({
             disabled={isRecording}
             className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${
               mode === id
-                ? 'bg-[#1E1E1E] text-gray-200'
-                : 'text-gray-600 hover:text-gray-400 disabled:cursor-not-allowed'
+                ? 'bg-white text-brand-700 shadow-sm'
+                : 'text-gray-500 hover:text-brand-700 disabled:cursor-not-allowed'
             }`}
           >
             {label}
@@ -955,9 +955,9 @@ export default function RecordingStudio({
       </div>
 
       {/* Track toggle */}
-      <div className="bg-[#0F0F0F] border border-[#1E1E1E] rounded-xl p-4 mb-4 flex items-center justify-between">
-        <span className="text-[10px] text-gray-600 tracking-widest">PLAYBACK TRACK</span>
-        <div className="flex items-center gap-1 bg-[#0A0A0A] rounded-lg p-1 border border-[#1C1C1C]">
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex items-center justify-between">
+        <span className="text-[10px] text-gray-600 tracking-widest font-semibold">PLAYBACK TRACK</span>
+        <div className="flex items-center gap-1 bg-brand-50 rounded-lg p-1 border border-brand-100">
           {[
             { value: false, label: 'Backing Only' },
             { value: true, label: 'With Vocals' },
@@ -968,8 +968,8 @@ export default function RecordingStudio({
               disabled={isRecording}
               className={`px-3 py-1.5 text-xs rounded-md transition-colors font-medium ${
                 withVocals === value
-                  ? 'bg-amber-500 text-black'
-                  : 'text-gray-500 hover:text-gray-300 disabled:cursor-not-allowed'
+                  ? 'bg-brand-700 text-white shadow-sm'
+                  : 'text-gray-500 hover:text-brand-700 disabled:cursor-not-allowed'
               }`}
             >
               {label}
@@ -1026,17 +1026,17 @@ export default function RecordingStudio({
         {mode === 'upload' ? (
           hasRecording ? (
             <div className="text-center space-y-4 w-full">
-              <p className="text-emerald-400 text-sm">✓ File loaded — ready to analyze</p>
+              <p className="text-emerald-700 text-sm font-medium">✓ File loaded — ready to analyze</p>
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={() => { setHasRecording(false); blobRef.current = null; if (fileInputRef.current) fileInputRef.current.value = '' }}
-                  className="px-6 py-3 border border-[#2A2A2A] hover:border-[#444] text-gray-400 hover:text-gray-200 rounded-xl text-sm transition-colors"
+                  className="px-6 py-3 border border-gray-300 hover:border-gray-500 text-gray-700 hover:text-black rounded-xl text-sm transition-colors"
                 >
                   Change File
                 </button>
                 <button
                   onClick={handleSubmit}
-                  className="px-8 py-3 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm transition-colors"
+                  className="px-8 py-3 bg-brand-700 hover:bg-brand-800 text-white font-semibold rounded-xl text-sm transition-colors shadow-sm"
                 >
                   Analyze My Performance →
                 </button>
@@ -1053,18 +1053,18 @@ export default function RecordingStudio({
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center gap-2 w-full max-w-xs border-2 border-dashed border-[#2A2A2A] hover:border-amber-500/40 rounded-2xl py-8 text-gray-500 hover:text-gray-300 transition-all"
+                className="flex flex-col items-center gap-2 w-full max-w-xs border-2 border-dashed border-gray-300 hover:border-brand-400 hover:bg-brand-50 rounded-2xl py-8 text-gray-500 hover:text-brand-700 transition-all"
               >
                 <span className="text-3xl">↑</span>
                 <span className="text-sm font-semibold">Choose audio file</span>
-                <span className="text-xs text-gray-700">WAV, MP3, M4A, WebM, OGG…</span>
+                <span className="text-xs text-gray-400">WAV, MP3, M4A, WebM, OGG…</span>
               </button>
             </div>
           )
         ) : (
           <>
             {countdown !== null && (
-              <div className="text-7xl font-bold text-amber-400 tabular-nums animate-score-pop">
+              <div className="classic-heading text-8xl font-semibold text-brand-700 tabular-nums animate-score-pop">
                 {countdown}
               </div>
             )}
@@ -1072,18 +1072,18 @@ export default function RecordingStudio({
             {isRecording ? (
               <button
                 onClick={stopRecording}
-                className="flex items-center gap-3 bg-[#1A0000] hover:bg-red-950 border border-red-800 text-red-400 px-8 py-4 rounded-2xl font-bold text-sm transition-all"
+                className="flex items-center gap-3 bg-red-50 hover:bg-red-100 border border-red-300 text-red-700 px-8 py-4 rounded-2xl font-semibold text-sm transition-all"
               >
-                <span className="w-3 h-3 bg-red-500 rounded-sm" />
+                <span className="w-3 h-3 bg-red-600 rounded-sm" />
                 Stop Recording
               </button>
             ) : hasRecording ? (
               <div className="text-center space-y-4 w-full">
-                <p className="text-emerald-400 text-sm">
+                <p className="text-emerald-700 text-sm font-medium">
                   ✓ Recording captured ({fmt(recSeconds)})
                 </p>
                 {recSeconds < 45 && (
-                  <p className="text-amber-600 text-xs text-center max-w-xs">
+                  <p className="text-brand-700 text-xs text-center max-w-xs">
                     Short recording ({fmt(recSeconds)}) — fewer words will be scored.
                     Try recording 60s+ through an active vocal section.
                   </p>
@@ -1091,13 +1091,13 @@ export default function RecordingStudio({
                 <div className="flex gap-3 justify-center">
                   <button
                     onClick={handleRecordAgain}
-                    className="px-6 py-3 border border-[#2A2A2A] hover:border-[#444] text-gray-400 hover:text-gray-200 rounded-xl text-sm transition-colors"
+                    className="px-6 py-3 border border-gray-300 hover:border-gray-500 text-gray-700 hover:text-black rounded-xl text-sm transition-colors"
                   >
                     Try Again
                   </button>
                   <button
                     onClick={handleSubmit}
-                    className="px-8 py-3 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm transition-colors"
+                    className="px-8 py-3 bg-brand-700 hover:bg-brand-800 text-white font-semibold rounded-xl text-sm transition-colors shadow-sm"
                   >
                     Analyze My Performance →
                   </button>
@@ -1107,9 +1107,9 @@ export default function RecordingStudio({
               <button
                 onClick={startRecording}
                 disabled={countdown !== null}
-                className="group relative w-20 h-20 rounded-full bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-red-600/30 hover:shadow-red-500/40 hover:scale-105"
+                className="group relative w-24 h-24 rounded-full bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-red-200 hover:scale-105 ring-4 ring-white"
               >
-                <span className="text-white font-bold text-sm tracking-wider">REC</span>
+                <span className="text-white font-bold text-base tracking-wider">REC</span>
               </button>
             )}
 

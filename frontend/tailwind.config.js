@@ -4,18 +4,33 @@ export default {
   theme: {
     extend: {
       colors: {
-        studio: {
-          bg: '#080808',
-          surface: '#101010',
-          panel: '#181818',
-          border: '#252525',
-          amber: '#F59E0B',
-          gold: '#FBBF24',
-          muted: '#6B7280',
+        // Classic purple brand scale.  600 = primary CTA, 700 = hover/active,
+        // 900 = deep heading accent, 50 = very light surfaces.
+        brand: {
+          50:  '#FAF5FF',
+          100: '#F3E8FF',
+          200: '#E9D5FF',
+          300: '#D8B4FE',
+          400: '#C084FC',
+          500: '#A855F7',
+          600: '#7E22CE',
+          700: '#6B21A8',
+          800: '#581C87',
+          900: '#3B0764',
+        },
+        // Dark "instrument panel" tones — kept for the recording visualizations
+        // (waveform, melody guide) where contrast against bright signals matters.
+        panel: {
+          bg:     '#0B0A12',
+          surface:'#13111C',
+          border: '#2A2438',
         },
       },
       fontFamily: {
-        mono: ['"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'monospace'],
+        // Classic serif for headlines / brand mark.
+        serif: ['"Cormorant Garamond"', 'Georgia', 'Cambria', '"Times New Roman"', 'Times', 'serif'],
+        sans:  ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        mono:  ['"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'monospace'],
       },
       keyframes: {
         'pulse-ring': {
