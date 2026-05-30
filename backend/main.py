@@ -20,14 +20,14 @@ app = FastAPI(title="PitchPerfect API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # must be False when allow_origins="*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-TEMP_DIR = Path("./temp")
-TEMP_DIR.mkdir(exist_ok=True)
+TEMP_DIR = Path(os.environ.get("PP_TEMP_DIR", "./temp"))
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 # job_id → {status, progress, message, error?, reference?}
 jobs: Dict[str, Dict[str, Any]] = {}
@@ -55,6 +55,14 @@ def _run_pipeline(
     def update(status: str, progress: int, message: str) -> None:
         job.update({"status": status, "progress": progress, "message": message})
         logger.info("[%s] %s", job_id, message)
+        # Persist progress to disk so get_job can recover after a container restart.
+        try:
+            status_file = TEMP_DIR / job_id / "status.json"
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(status_file, "w") as _sf:
+                json.dump({"status": status, "progress": progress, "message": message}, _sf)
+        except Exception as _e:
+            logger.warning("[%s] Failed to write status.json: %s", job_id, _e)
 
     try:
         # Look up lyrics early so we can use them as Whisper prompt
@@ -199,7 +207,31 @@ def health():
 @app.get("/api/job/{job_id}")
 def get_job(job_id: str):
     if job_id not in jobs:
-        raise HTTPException(404, "Job not found")
+        # Attempt to recover from disk (handles Modal container restarts).
+        ref_file = TEMP_DIR / job_id / "reference.json"
+        status_file = TEMP_DIR / job_id / "status.json"
+        if ref_file.exists():
+            with open(ref_file) as f:
+                reference = json.load(f)
+            disk_status = {}
+            if status_file.exists():
+                with open(status_file) as f:
+                    disk_status = json.load(f)
+            jobs[job_id] = {
+                "status": disk_status.get("status", "complete"),
+                "progress": disk_status.get("progress", 100),
+                "message": disk_status.get("message", "Ready!"),
+                "reference": reference,
+            }
+            logger.info("[%s] Reconstructed job state from disk", job_id)
+        elif status_file.exists():
+            # Still processing — recover progress display but no reference yet
+            with open(status_file) as f:
+                disk_status = json.load(f)
+            jobs[job_id] = disk_status
+            logger.info("[%s] Recovered in-progress status from disk", job_id)
+        else:
+            raise HTTPException(404, "Job not found")
     job = jobs[job_id]
 
     pitch_guide = None
@@ -333,12 +365,29 @@ async def upload_song(
     return {"job_id": job_id}
 
 
+def _recover_job_from_disk(job_id: str) -> bool:
+    """Load a completed job from the persistent Volume if not in memory. Returns True if found."""
+    ref_file = TEMP_DIR / job_id / "reference.json"
+    if ref_file.exists():
+        with open(ref_file) as f:
+            reference = json.load(f)
+        jobs[job_id] = {
+            "status": "complete",
+            "progress": 100,
+            "message": "Ready!",
+            "reference": reference,
+        }
+        logger.info("[%s] Reconstructed job from disk", job_id)
+        return True
+    return False
+
+
 @app.post("/api/analyze")
 async def analyze(
     job_id: str = Form(...),
     user_audio: UploadFile = File(...),
 ):
-    if job_id not in jobs:
+    if job_id not in jobs and not _recover_job_from_disk(job_id):
         raise HTTPException(404, "Job not found")
 
     job = jobs[job_id]
@@ -402,7 +451,7 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
     word timing.  Like the main pipeline, transcription runs WITHOUT a lyrics
     prompt so Whisper keeps complete, accurately-timed word coverage; the edited
     lyrics are stored as the source text and aligned onto those timestamps."""
-    if job_id not in jobs:
+    if job_id not in jobs and not _recover_job_from_disk(job_id):
         raise HTTPException(404, "Job not found")
     job = jobs[job_id]
     if "reference" not in job:
@@ -446,6 +495,8 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
 
 @app.get("/api/audio/{job_id}/{track}")
 def serve_audio(job_id: str, track: str):
+    if job_id not in jobs:
+        _recover_job_from_disk(job_id)
     if job_id not in jobs or "reference" not in jobs[job_id]:
         raise HTTPException(404, "Reference not found")
 
@@ -472,6 +523,8 @@ def serve_audio(job_id: str, track: str):
 
 @app.get("/api/recording/{job_id}")
 def serve_user_recording(job_id: str):
+    if job_id not in jobs:
+        _recover_job_from_disk(job_id)
     if job_id not in jobs:
         raise HTTPException(404, "Job not found")
     path = jobs[job_id].get("user_recording_path")

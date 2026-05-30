@@ -12,7 +12,7 @@ import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
-TEMP_DIR = Path("./temp")
+TEMP_DIR = Path(os.environ.get("PP_TEMP_DIR", "./temp"))
 SR = 16000
 HOP_LENGTH = 512
 FRAME_LENGTH = 2048
