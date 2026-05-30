@@ -43,18 +43,21 @@ def download_youtube(url: str, job_id: str) -> str:
         Path(sys.executable).parent / "yt-dlp"
     )
 
+    # YouTube bot-check bypass: use cookies if available on the Modal Volume,
+    # otherwise fall back to the Android player client (works on most cloud IPs).
+    cookies_path = Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent / "youtube_cookies.txt"
+    cookie_args = ["--cookies", str(cookies_path)] if cookies_path.exists() else [
+        "--extractor-args", "youtube:player_client=android,mweb"
+    ]
+
     cmd = [
         ytdlp_bin,
         "-x",
         "--audio-format", "wav",
         "--audio-quality", "0",
-        # Use Android + mweb player clients to avoid YouTube's cloud-IP bot check.
-        # These clients don't trigger the "Sign in to confirm you're not a bot" error
-        # that the default web client hits from datacenter IPs.
-        "--extractor-args", "youtube:player_client=android,mweb",
+        *cookie_args,
         "-o", str(out_dir / "original.%(ext)s"),
         "--no-playlist",
-        # Retry a few times in case of transient network errors
         "--retries", "3",
         url,
     ]
