@@ -22,6 +22,185 @@ function HowItWorksStep({ n, title, body }) {
   )
 }
 
+// Illustrative preview of the live recording interface — styled to match the
+// real KaraokeDisplay + PitchGuide components.  Not a screenshot; a hand-built
+// React/SVG mock that stays in sync with the brand and updates instantly.
+function LiveSingingPreview() {
+  const words = [
+    { text: 'Wise',  note: 'C#3', state: 'past' },
+    { text: 'men',   note: 'D3',  state: 'past' },
+    { text: 'say',   note: 'F#3', state: 'current' },
+    { text: 'only',  note: 'F3',  state: 'upcoming' },
+    { text: 'fools', note: 'D#3', state: 'upcoming' },
+    { text: 'rush',  note: 'F3',  state: 'upcoming' },
+    { text: 'in',    note: 'D3',  state: 'upcoming' },
+  ]
+  return (
+    <div className="bg-[#0B0A12] border border-[#2A2438] rounded-2xl overflow-hidden shadow-xl">
+      {/* Status strip */}
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#13111C] border-b border-[#2A2438]">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+          <span className="text-[10px] text-red-300 tracking-widest font-mono">REC 0:42</span>
+        </div>
+        <span className="text-[10px] text-gray-500 tracking-widest font-mono hidden sm:inline">
+          CAN'T HELP FALLING IN LOVE
+        </span>
+      </div>
+
+      {/* Karaoke line */}
+      <div className="flex flex-wrap items-end justify-center gap-x-3 gap-y-1 px-4 py-4 min-h-[60px]">
+        {words.map((w) => (
+          <div key={w.text} className="flex flex-col items-center">
+            <span
+              className={`text-lg font-bold leading-none ${
+                w.state === 'current'
+                  ? 'text-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                  : w.state === 'past'
+                  ? 'text-gray-700'
+                  : 'text-gray-500'
+              }`}
+            >
+              {w.text}
+            </span>
+            <span
+              className={`text-[9px] font-mono leading-none mt-1.5 ${
+                w.state === 'current'
+                  ? 'text-amber-300/90'
+                  : w.state === 'past'
+                  ? 'text-gray-800'
+                  : 'text-emerald-700/70'
+              }`}
+            >
+              {w.note}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Melody guide */}
+      <div className="border-t border-[#2A2438] px-2 pt-2 pb-3">
+        <div className="flex items-center justify-between px-2 mb-1">
+          <span className="text-[9px] text-gray-700 tracking-widest">MELODY GUIDE</span>
+          <span className="text-[10px] font-mono text-brand-300 bg-brand-900/40 border border-brand-700/40 px-2 py-0.5 rounded">
+            ♪ sing F#3
+          </span>
+        </div>
+        <svg viewBox="0 0 640 180" className="block w-full" preserveAspectRatio="none">
+          <rect x="36" y="8" width="596" height="160" fill="#050505" />
+          {/* C-note gridlines */}
+          {[
+            { y: 30,  label: 'D4' },
+            { y: 90,  label: 'C4' },
+            { y: 150, label: 'B3' },
+          ].map((g) => (
+            <g key={g.label}>
+              <line x1="36" y1={g.y} x2="632" y2={g.y} stroke="#1A1A1A" strokeWidth="1" />
+              <text x="33" y={g.y + 3} textAnchor="end" fontSize="9" fill="#555" fontFamily="monospace">{g.label}</text>
+            </g>
+          ))}
+          {/* Dashed connector between word-note centres */}
+          <polyline
+            points="80,120 180,90 280,70 380,80 480,100 580,60"
+            fill="none" stroke="#3A4A44" strokeWidth="1" strokeDasharray="2 2"
+          />
+          {/* Note bars: past (dim), current (amber), upcoming (green) */}
+          <rect x="60"  y="116" width="80" height="8" rx="4" fill="#2C3A35" fillOpacity="0.55" />
+          <rect x="160" y="86"  width="80" height="8" rx="4" fill="#2C3A35" fillOpacity="0.55" />
+          <rect x="260" y="66"  width="80" height="8" rx="4" fill="#F59E0B" />
+          <text x="300" y="58" textAnchor="middle" fontSize="11" fontWeight="bold" fill="#FCD34D" fontFamily="monospace">F#3</text>
+          <rect x="360" y="76"  width="80" height="8" rx="4" fill="#10B981" fillOpacity="0.85" />
+          <text x="400" y="68" textAnchor="middle" fontSize="11" fill="#6B7B75" fontFamily="monospace">F3</text>
+          <rect x="460" y="96"  width="80" height="8" rx="4" fill="#10B981" fillOpacity="0.85" />
+          <text x="500" y="88" textAnchor="middle" fontSize="11" fill="#6B7B75" fontFamily="monospace">D#3</text>
+          <rect x="560" y="56"  width="60" height="8" rx="4" fill="#10B981" fillOpacity="0.85" />
+          {/* Now cursor */}
+          <line x1="300" y1="8" x2="300" y2="168" stroke="#F59E0B" strokeWidth="1.5" strokeOpacity="0.7" />
+          <polygon points="296,8 304,8 300,15" fill="#F59E0B" fillOpacity="0.7" />
+        </svg>
+      </div>
+    </div>
+  )
+}
+
+// Illustrative preview of the coaching report.  Same caveat as above.
+function CoachingReportPreview() {
+  const stats = [
+    { label: 'PITCH',    value: 91, color: 'text-emerald-700' },
+    { label: 'TIMING',   value: 84, color: 'text-brand-700' },
+    { label: 'DYNAMICS', value: 86, color: 'text-emerald-700' },
+  ]
+  const wordRows = [
+    { word: 'Wise',    delta: 'on',       score: 95 },
+    { word: 'men',     delta: '+18¢ sharp', score: 80 },
+    { word: 'say',     delta: 'on',       score: 92 },
+    { word: 'only',    delta: '+35¢ sharp', score: 64 },
+    { word: 'fools',   delta: 'on',       score: 88 },
+    { word: 'falling', delta: '-22¢ flat',  score: 73 },
+  ]
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xl">
+      {/* Score */}
+      <div className="text-center pt-7 pb-5 px-6 border-b border-gray-100">
+        <div className="text-[10px] text-gray-500 tracking-widest mb-3 font-semibold">OVERALL SCORE</div>
+        <div className="flex items-end justify-center gap-3 mb-1">
+          <span className="classic-heading text-6xl font-semibold text-brand-700 tabular-nums leading-none">87</span>
+          <span className="text-2xl text-gray-300 mb-1 font-light">/100</span>
+        </div>
+        <div className="classic-heading text-3xl font-semibold text-brand-700 mt-1">B+</div>
+      </div>
+
+      {/* Focus callout */}
+      <div className="bg-brand-50 border border-brand-200 mx-5 mt-4 rounded-xl px-4 py-3">
+        <div className="text-[10px] tracking-widest text-brand-700 font-semibold mb-1.5">COACHING FOCUS</div>
+        <p className="text-xs text-gray-700 leading-relaxed">
+          Pitch is strong on sustained notes — work on the transitions in <em>"only fools"</em>,
+          where you went sharp by ~35 cents.
+        </p>
+      </div>
+
+      {/* Stat tiles */}
+      <div className="grid grid-cols-3 gap-3 px-5 mt-4">
+        {stats.map((s) => (
+          <div key={s.label} className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+            <div className="text-[9px] text-gray-500 tracking-widest mb-1">{s.label}</div>
+            <div className={`text-2xl font-semibold tabular-nums ${s.color}`}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Word-by-word */}
+      <div className="px-5 pt-4 pb-5">
+        <div className="text-[10px] tracking-widest text-gray-500 font-semibold mb-2">WORD-BY-WORD</div>
+        <div className="space-y-1.5">
+          {wordRows.map((w) => (
+            <div key={w.word} className="flex items-center gap-3 text-xs">
+              <span className="w-16 font-medium text-black truncate">{w.word}</span>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${
+                    w.score >= 90 ? 'bg-emerald-500'
+                      : w.score >= 75 ? 'bg-brand-500'
+                      : 'bg-orange-400'
+                  }`}
+                  style={{ width: `${w.score}%` }}
+                />
+              </div>
+              <span
+                className={`text-[10px] font-mono w-20 text-right ${
+                  w.score >= 90 ? 'text-emerald-700' : 'text-gray-500'
+                }`}
+              >
+                {w.delta}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FaqItem({ q, a }) {
   return (
     <details className="group bg-white border border-gray-200 rounded-xl overflow-hidden open:shadow-sm transition-shadow">
@@ -67,15 +246,6 @@ export default function SongInput({ onSubmit }) {
     if (dropped) setFile(dropped)
   }
 
-  // Click-to-load a featured song: pre-fills the form, switches to the YouTube
-  // tab, and scrolls back to the form so the user can review and hit submit.
-  const loadFeatured = ({ url: u, artist: a, songTitle: t }) => {
-    setTab('youtube')
-    setUrl(u)
-    setArtist(a)
-    setSongTitle(t)
-    document.getElementById('coach-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
 
   const isYouTubeUrl = (s) =>
     s.includes('youtube.com/watch') || s.includes('youtu.be/')
@@ -233,62 +403,54 @@ export default function SongInput({ onSubmit }) {
         </div>
       </div>
 
-      {/* Featured songs — start with something known-good */}
-      <section id="try-a-song" className="mb-20 scroll-mt-24">
-        <div className="text-center mb-8">
-          <div className="text-[10px] tracking-widest text-brand-700 font-semibold mb-2">TRY A SONG</div>
+      {/* See it at work — illustrative previews of the two main views */}
+      <section id="see-it" className="mb-20 scroll-mt-24">
+        <div className="text-center mb-10">
+          <div className="text-[10px] tracking-widest text-brand-700 font-semibold mb-2">SEE IT AT WORK</div>
           <h3 className="classic-heading text-3xl sm:text-4xl font-semibold text-black tracking-tight">
-            Not sure what to sing? Start here.
+            What you'll see while you sing
           </h3>
         </div>
 
-        {/* Marquee featured card — Can't Help Falling in Love */}
-        <button
-          onClick={() => loadFeatured({
-            url: 'https://www.youtube.com/watch?v=vGJTaP6anOU',
-            artist: 'Elvis Presley',
-            songTitle: "Can't Help Falling in Love",
-          })}
-          className="group block w-full text-left bg-gradient-to-br from-brand-50 to-white border border-brand-200 hover:border-brand-400 rounded-2xl p-6 sm:p-8 transition-all hover:shadow-md mb-4"
-        >
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] font-semibold tracking-widest text-brand-700 bg-brand-100 px-2 py-0.5 rounded-full">FEATURED</span>
-                <span className="text-[10px] text-gray-500">~3 min · slow ballad</span>
-              </div>
-              <h4 className="classic-heading text-2xl sm:text-3xl font-semibold text-black mb-1 leading-tight">
-                Can't Help Falling in Love
-              </h4>
-              <p className="text-brand-700 italic font-serif text-base sm:text-lg mb-3">Elvis Presley</p>
-              <p className="text-gray-600 text-sm leading-relaxed max-w-lg">
-                Long held notes and clear lyric phrasing — the perfect first song to test the karaoke timing,
-                melody guide, and word-level pitch feedback. Most of our development sessions used this track.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-brand-700 group-hover:text-brand-800 font-semibold text-sm shrink-0 self-end sm:self-center">
-              Use this song
-              <span className="text-lg group-hover:translate-x-1 transition-transform" aria-hidden>→</span>
-            </div>
+        {/* Live singing interface */}
+        <div className="grid md:grid-cols-2 gap-8 md:gap-10 items-center mb-14">
+          <div>
+            <h4 className="classic-heading text-2xl sm:text-3xl font-semibold text-black mb-3 leading-tight">
+              Sing with a melody you can see.
+            </h4>
+            <p className="text-gray-700 text-base leading-relaxed mb-3">
+              The karaoke line tells you what word is coming.
+              The melody guide above it shows the <em>exact note</em> to hit — on a stable musical scale.
+            </p>
+            <p className="text-gray-600 text-sm leading-relaxed">
+              Watch the pitch rise and fall through the song as the cursor moves
+              underneath each word. No more guessing the target — it's right there in front of you.
+            </p>
           </div>
-        </button>
+          <div className="md:order-last">
+            <LiveSingingPreview />
+          </div>
+        </div>
 
-        {/* Genre trust strip — honest claim about what's been tested */}
-        <div className="bg-white border border-gray-200 rounded-xl p-5 sm:p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
-            <div className="text-[10px] font-semibold tracking-widest text-gray-500 shrink-0">TESTED ACROSS</div>
-            <div className="flex flex-wrap gap-2">
-              {['Slow ballads', 'Pop', 'Rock', 'R&B', 'Classical', 'Indian classical', '~90 languages'].map((g) => (
-                <span key={g} className="text-xs bg-brand-50 text-brand-700 border border-brand-100 px-2.5 py-1 rounded-full">
-                  {g}
-                </span>
-              ))}
-            </div>
+        {/* Coaching report */}
+        <div className="grid md:grid-cols-2 gap-8 md:gap-10 items-center">
+          <div className="md:order-2">
+            <h4 className="classic-heading text-2xl sm:text-3xl font-semibold text-black mb-3 leading-tight">
+              Get a coach's reading of every line.
+            </h4>
+            <p className="text-gray-700 text-base leading-relaxed mb-3">
+              Word-by-word: how flat or sharp you were (in cents),
+              where you rushed or dragged the beat,
+              and where you trailed off when you should have powered through.
+            </p>
+            <p className="text-gray-600 text-sm leading-relaxed">
+              Then one focused summary on the single thing to work on next time —
+              not just a star rating.
+            </p>
           </div>
-          <p className="text-xs text-gray-500 mt-4 leading-relaxed">
-            Pitch detection (pyin) and timing alignment (Whisper) are language- and genre-agnostic —
-            anything with a vocal track works.
-          </p>
+          <div className="md:order-1">
+            <CoachingReportPreview />
+          </div>
         </div>
       </section>
 

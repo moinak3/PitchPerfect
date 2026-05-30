@@ -16,7 +16,7 @@ function Header({ onNewSong, showBack, onIdle }) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navLinks = [
-    { href: '#try-a-song',   label: 'Try a song' },
+    { href: '#see-it',       label: 'See it at work' },
     { href: '#how-it-works', label: 'How it works' },
     { href: '#why',          label: 'Why PitchPerfect' },
     { href: '#faq',          label: 'FAQ' },
@@ -393,7 +393,7 @@ export default function App() {
 
           <div className="flex flex-col gap-2">
             <div className="text-[10px] font-semibold tracking-widest text-gray-400 mb-1">PRODUCT</div>
-            <a href="#try-a-song" className="text-gray-600 hover:text-brand-700 transition-colors">Try a song</a>
+            <a href="#see-it" className="text-gray-600 hover:text-brand-700 transition-colors">See it at work</a>
             <a href="#how-it-works" className="text-gray-600 hover:text-brand-700 transition-colors">How it works</a>
             <a href="#why" className="text-gray-600 hover:text-brand-700 transition-colors">Why PitchPerfect</a>
             <a href="#faq" className="text-gray-600 hover:text-brand-700 transition-colors">FAQ</a>
