@@ -42,6 +42,7 @@ image = (
         "ffmpeg",       # audio conversion throughout the pipeline
         "libsndfile1",  # required by soundfile / librosa
         "git",          # some pip packages need git at install time
+        "nodejs",       # yt-dlp JS extractor fallback
     )
     .pip_install(
         # Web framework
@@ -61,8 +62,8 @@ image = (
         "demucs>=4.0.0",
         # Transcription (downloads whisper model on first run, then cached)
         "openai-whisper>=20231117",
-        # YouTube download
-        "yt-dlp>=2023.10.13",
+        # YouTube download — keep at latest, older versions get blocked by YouTube
+        "yt-dlp",
     )
     # Bake backend source into the image.
     # Re-run `modal deploy modal_app.py` after any backend code change.

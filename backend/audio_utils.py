@@ -48,9 +48,14 @@ def download_youtube(url: str, job_id: str) -> str:
         "-x",
         "--audio-format", "wav",
         "--audio-quality", "0",
-        "--js-runtimes", "node",
+        # Use Android + mweb player clients to avoid YouTube's cloud-IP bot check.
+        # These clients don't trigger the "Sign in to confirm you're not a bot" error
+        # that the default web client hits from datacenter IPs.
+        "--extractor-args", "youtube:player_client=android,mweb",
         "-o", str(out_dir / "original.%(ext)s"),
         "--no-playlist",
+        # Retry a few times in case of transient network errors
+        "--retries", "3",
         url,
     ]
 
