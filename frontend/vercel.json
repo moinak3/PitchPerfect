@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "MODAL_URL/api/:path*"
+      "destination": "https://moinak-bandyopadhyay--pitchperfect-fastapi-app.modal.run/api/:path*"
     },
     {
       "source": "/(.*)",
