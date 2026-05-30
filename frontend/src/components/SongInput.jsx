@@ -67,6 +67,16 @@ export default function SongInput({ onSubmit }) {
     if (dropped) setFile(dropped)
   }
 
+  // Click-to-load a featured song: pre-fills the form, switches to the YouTube
+  // tab, and scrolls back to the form so the user can review and hit submit.
+  const loadFeatured = ({ url: u, artist: a, songTitle: t }) => {
+    setTab('youtube')
+    setUrl(u)
+    setArtist(a)
+    setSongTitle(t)
+    document.getElementById('coach-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const isYouTubeUrl = (s) =>
     s.includes('youtube.com/watch') || s.includes('youtu.be/')
 
@@ -83,18 +93,18 @@ export default function SongInput({ onSubmit }) {
         <div className="inline-block text-[10px] tracking-widest text-brand-700 bg-brand-50 border border-brand-200 px-3 py-1 rounded-full mb-5 font-semibold">
           AI VOCAL COACH · RUNS ON YOUR LAPTOP
         </div>
-        <h2 className="classic-heading text-5xl sm:text-6xl font-semibold mb-5 tracking-tight text-black leading-[1.05]">
+        <h2 className="classic-heading text-4xl sm:text-5xl md:text-6xl font-semibold mb-5 tracking-tight text-black leading-[1.05]">
           Sing any song.<br />
           <span className="italic text-brand-700">Hear how you're really doing.</span>
         </h2>
-        <p className="text-gray-600 text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
+        <p className="text-gray-600 text-sm sm:text-base md:text-lg max-w-xl mx-auto leading-relaxed">
           PitchPerfect listens like a vocal coach — grading your pitch, timing, and energy on whatever song you bring.
           Word-by-word feedback in five minutes. No catalog, no cloud, no subscription.
         </p>
       </div>
 
       {/* Input card */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-10 shadow-sm">
+      <div id="coach-form" className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-10 shadow-sm scroll-mt-24">
         {/* Tabs */}
         <div className="flex border-b border-gray-200 bg-brand-50/50">
           {['youtube', 'file'].map((t) => (
@@ -222,6 +232,65 @@ export default function SongInput({ onSubmit }) {
           )}
         </div>
       </div>
+
+      {/* Featured songs — start with something known-good */}
+      <section id="try-a-song" className="mb-20 scroll-mt-24">
+        <div className="text-center mb-8">
+          <div className="text-[10px] tracking-widest text-brand-700 font-semibold mb-2">TRY A SONG</div>
+          <h3 className="classic-heading text-3xl sm:text-4xl font-semibold text-black tracking-tight">
+            Not sure what to sing? Start here.
+          </h3>
+        </div>
+
+        {/* Marquee featured card — Can't Help Falling in Love */}
+        <button
+          onClick={() => loadFeatured({
+            url: 'https://www.youtube.com/watch?v=vGJTaP6anOU',
+            artist: 'Elvis Presley',
+            songTitle: "Can't Help Falling in Love",
+          })}
+          className="group block w-full text-left bg-gradient-to-br from-brand-50 to-white border border-brand-200 hover:border-brand-400 rounded-2xl p-6 sm:p-8 transition-all hover:shadow-md mb-4"
+        >
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-semibold tracking-widest text-brand-700 bg-brand-100 px-2 py-0.5 rounded-full">FEATURED</span>
+                <span className="text-[10px] text-gray-500">~3 min · slow ballad</span>
+              </div>
+              <h4 className="classic-heading text-2xl sm:text-3xl font-semibold text-black mb-1 leading-tight">
+                Can't Help Falling in Love
+              </h4>
+              <p className="text-brand-700 italic font-serif text-base sm:text-lg mb-3">Elvis Presley</p>
+              <p className="text-gray-600 text-sm leading-relaxed max-w-lg">
+                Long held notes and clear lyric phrasing — the perfect first song to test the karaoke timing,
+                melody guide, and word-level pitch feedback. Most of our development sessions used this track.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-brand-700 group-hover:text-brand-800 font-semibold text-sm shrink-0 self-end sm:self-center">
+              Use this song
+              <span className="text-lg group-hover:translate-x-1 transition-transform" aria-hidden>→</span>
+            </div>
+          </div>
+        </button>
+
+        {/* Genre trust strip — honest claim about what's been tested */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
+            <div className="text-[10px] font-semibold tracking-widest text-gray-500 shrink-0">TESTED ACROSS</div>
+            <div className="flex flex-wrap gap-2">
+              {['Slow ballads', 'Pop', 'Rock', 'R&B', 'Classical', 'Indian classical', '~90 languages'].map((g) => (
+                <span key={g} className="text-xs bg-brand-50 text-brand-700 border border-brand-100 px-2.5 py-1 rounded-full">
+                  {g}
+                </span>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-4 leading-relaxed">
+            Pitch detection (pyin) and timing alignment (Whisper) are language- and genre-agnostic —
+            anything with a vocal track works.
+          </p>
+        </div>
+      </section>
 
       {/* Feature outcomes — what you actually get */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-20">

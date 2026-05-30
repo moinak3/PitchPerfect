@@ -13,30 +13,41 @@ const S = {
 }
 
 function Header({ onNewSong, showBack, onIdle }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const navLinks = [
+    { href: '#try-a-song',   label: 'Try a song' },
+    { href: '#how-it-works', label: 'How it works' },
+    { href: '#why',          label: 'Why PitchPerfect' },
+    { href: '#faq',          label: 'FAQ' },
+  ]
+
   return (
-    <header className="border-b border-gray-200 px-6 py-4 sticky top-0 bg-white/85 backdrop-blur z-50">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+    <header className="border-b border-gray-200 sticky top-0 bg-white/90 backdrop-blur z-50">
+      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4 px-4 sm:px-6 py-3 sm:py-4">
         <a
           href="#top"
           onClick={(e) => { e.preventDefault(); onIdle?.() }}
-          className="flex items-center gap-3 group"
+          className="flex items-center gap-2 sm:gap-3 group min-w-0"
           aria-label="PitchPerfect home"
         >
-          <div className="w-9 h-9 rounded-full bg-brand-700 flex items-center justify-center shadow-sm group-hover:bg-brand-800 transition-colors">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-brand-700 flex items-center justify-center shadow-sm group-hover:bg-brand-800 transition-colors shrink-0">
             <span className="text-white font-serif italic font-semibold text-base leading-none">P</span>
           </div>
-          <h1 className="classic-heading text-2xl font-semibold tracking-tight text-black">
+          <h1 className="classic-heading text-xl sm:text-2xl font-semibold tracking-tight text-black truncate">
             <span className="text-brand-700">Pitch</span>Perfect
           </h1>
-          <span className="hidden sm:inline text-[10px] text-brand-700 border border-brand-200 bg-brand-50 px-2 py-0.5 rounded-full tracking-widest font-medium">
+          <span className="hidden lg:inline text-[10px] text-brand-700 border border-brand-200 bg-brand-50 px-2 py-0.5 rounded-full tracking-widest font-medium">
             VOCAL COACH
           </span>
         </a>
 
-        <nav className="hidden md:flex items-center gap-6 text-sm text-gray-600">
-          <a href="#how-it-works" className="hover:text-brand-700 transition-colors">How it works</a>
-          <a href="#why" className="hover:text-brand-700 transition-colors">Why PitchPerfect</a>
-          <a href="#faq" className="hover:text-brand-700 transition-colors">FAQ</a>
+        <nav className="hidden md:flex items-center gap-5 lg:gap-6 text-sm text-gray-600">
+          {navLinks.map((l) => (
+            <a key={l.href} href={l.href} className="hover:text-brand-700 transition-colors whitespace-nowrap">
+              {l.label}
+            </a>
+          ))}
           <a
             href="https://github.com/moinak3/PitchPerfect"
             target="_blank" rel="noopener noreferrer"
@@ -46,15 +57,63 @@ function Header({ onNewSong, showBack, onIdle }) {
           </a>
         </nav>
 
-        {showBack && (
+        <div className="flex items-center gap-2">
+          {showBack && (
+            <button
+              onClick={onNewSong}
+              className="text-xs text-gray-600 hover:text-brand-700 transition-colors font-medium border border-gray-300 hover:border-brand-300 px-3 py-1.5 rounded-full whitespace-nowrap"
+            >
+              ← New song
+            </button>
+          )}
+          {/* Mobile menu trigger */}
           <button
-            onClick={onNewSong}
-            className="text-xs text-gray-600 hover:text-brand-700 transition-colors font-medium border border-gray-300 hover:border-brand-300 px-3 py-1.5 rounded-full"
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-nav"
+            className="md:hidden w-9 h-9 rounded-lg border border-gray-300 hover:border-brand-400 hover:bg-brand-50 flex items-center justify-center text-gray-700"
           >
-            ← New song
+            <span className="sr-only">Menu</span>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+              {menuOpen ? (
+                <path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+              ) : (
+                <>
+                  <path d="M3 5h12M3 9h12M3 13h12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                </>
+              )}
+            </svg>
           </button>
-        )}
+        </div>
       </div>
+
+      {/* Mobile dropdown menu */}
+      {menuOpen && (
+        <div id="mobile-nav" className="md:hidden border-t border-gray-200 bg-white">
+          <nav className="max-w-5xl mx-auto px-4 py-3 flex flex-col">
+            {navLinks.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                onClick={() => setMenuOpen(false)}
+                className="py-3 px-2 rounded-md text-gray-700 hover:text-brand-700 hover:bg-brand-50 transition-colors text-base"
+              >
+                {l.label}
+              </a>
+            ))}
+            <a
+              href="https://github.com/moinak3/PitchPerfect"
+              target="_blank" rel="noopener noreferrer"
+              onClick={() => setMenuOpen(false)}
+              className="py-3 px-2 rounded-md text-gray-700 hover:text-brand-700 hover:bg-brand-50 transition-colors text-base flex items-center gap-2"
+            >
+              <span aria-hidden>★</span> GitHub
+            </a>
+          </nav>
+        </div>
+      )}
     </header>
   )
 }
@@ -334,6 +393,7 @@ export default function App() {
 
           <div className="flex flex-col gap-2">
             <div className="text-[10px] font-semibold tracking-widest text-gray-400 mb-1">PRODUCT</div>
+            <a href="#try-a-song" className="text-gray-600 hover:text-brand-700 transition-colors">Try a song</a>
             <a href="#how-it-works" className="text-gray-600 hover:text-brand-700 transition-colors">How it works</a>
             <a href="#why" className="text-gray-600 hover:text-brand-700 transition-colors">Why PitchPerfect</a>
             <a href="#faq" className="text-gray-600 hover:text-brand-700 transition-colors">FAQ</a>

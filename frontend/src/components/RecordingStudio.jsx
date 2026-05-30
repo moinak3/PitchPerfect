@@ -908,8 +908,8 @@ export default function RecordingStudio({
 
   return (
     <div className="max-w-2xl mx-auto animate-fade-up">
-      <div className="text-center mb-8">
-        <h2 className="classic-heading text-4xl font-semibold text-black mb-2">Recording Studio</h2>
+      <div className="text-center mb-6 sm:mb-8 px-2">
+        <h2 className="classic-heading text-3xl sm:text-4xl font-semibold text-black mb-2">Recording Studio</h2>
         <p className="text-gray-600 text-sm">
           Press REC, then sing along to the song playing through your speakers.
         </p>
