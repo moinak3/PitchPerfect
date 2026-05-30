@@ -94,6 +94,13 @@ def _run_pipeline(
         # lyrics onto these timestamps (see buildDisplayWords / scoring).
         words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
 
+        # Snap each word's start to its actual acoustic onset.  Whisper's word
+        # starts on sustained singing are systematically ~200-500 ms before the
+        # audible articulation, which makes the karaoke highlight fire early.
+        # This refines start times against the pitch-confidence and RMS curves.
+        from .audio_utils import refine_word_onsets
+        words = refine_word_onsets(words, pitch_times, pitch_conf, rms_times, rms_values)
+
         if not words:
             logger.warning("[%s] No words transcribed — vocal track may be silent", job_id)
 
@@ -420,6 +427,16 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
     except Exception as exc:
         logger.exception("[%s] Retranscription failed", job_id)
         raise HTTPException(500, f"Retranscription failed: {exc}")
+
+    # Same acoustic-onset refinement as the main pipeline.
+    from .audio_utils import refine_word_onsets
+    words = refine_word_onsets(
+        words,
+        ref.get("pitch_times", []),
+        ref.get("pitch_confidence", []),
+        ref.get("rms_times", []),
+        ref.get("rms_values", []),
+    )
 
     ref["words"] = words
     ref["lyrics"] = lyrics

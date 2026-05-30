@@ -220,6 +220,122 @@ def detect_vocal_sections(
     return substantial, vocal_start
 
 
+def refine_word_onsets(
+    words: List[dict],
+    pitch_times: List[float],
+    pitch_conf: List[float],
+    rms_times: List[float],
+    rms_values: List[float],
+    pre: float = 0.0,
+    post: float = 0.6,
+    conf_threshold: float = 0.2,
+) -> List[dict]:
+    """
+    Snap each Whisper word's start to its actual ACOUSTIC onset.
+
+    Why: on sustained singing Whisper's word_timestamps mark the start of the
+    decoded segment containing the word, which can precede the audible
+    articulation by 200-500 ms (or more on slow ballads).  We refine each
+    word.start by searching a window [start - pre, start + post] for the first
+    moment that's audibly the word: either pitch confidence crosses
+    ``conf_threshold`` (clear voiced singing begins) or, failing that, the RMS
+    envelope rises clearly above local background.  The earlier of the two is
+    chosen, monotonically constrained against the previous word.
+
+    Word ends are then patched so mid-phrase words remain contiguous (each
+    word's end = the next word's refined start); ORIGINAL pauses (where
+    Whisper itself had a gap) are preserved.
+
+    Args:
+        words:        Whisper words with float start/end and string word.
+        pitch_times, pitch_conf:  pyin output (sorted by time).
+        rms_times, rms_values:    RMS envelope (sorted by time).
+        pre, post:    seconds we're willing to shift the start earlier / later.
+        conf_threshold: pyin confidence above which we call a frame voiced.
+
+    Returns:
+        New list of {word, start, end} dicts with refined starts/ends.
+    """
+    import bisect
+
+    if not words or not pitch_times:
+        return [dict(w) for w in words]
+
+    def first_pitch_rise(lo: float, hi: float) -> Optional[float]:
+        idx = bisect.bisect_left(pitch_times, lo)
+        while idx < len(pitch_times) and pitch_times[idx] <= hi:
+            if pitch_conf[idx] >= conf_threshold:
+                return pitch_times[idx]
+            idx += 1
+        return None
+
+    def first_rms_rise(lo: float, hi: float) -> Optional[float]:
+        if not rms_times:
+            return None
+        # Local background = median RMS in [lo - 0.4, lo]
+        bg_vals = []
+        j = bisect.bisect_left(rms_times, max(0.0, lo - 0.4))
+        while j < len(rms_times) and rms_times[j] < lo:
+            bg_vals.append(rms_values[j])
+            j += 1
+        bg = sorted(bg_vals)[len(bg_vals) // 2] if bg_vals else 0.0
+        # Threshold = background + a small absolute step (RMS scale ~0.01-0.5)
+        thresh = max(bg + 0.025, bg * 1.6)
+        j = bisect.bisect_left(rms_times, lo)
+        while j < len(rms_times) and rms_times[j] <= hi:
+            if rms_values[j] >= thresh:
+                return rms_times[j]
+            j += 1
+        return None
+
+    # Cache original starts/ends for the contiguous-vs-pause check at the end.
+    orig = [(float(w["start"]), float(w["end"])) for w in words]
+    refined: List[dict] = []
+
+    for i, w in enumerate(words):
+        ws, we = orig[i]
+        # Bound the search so we don't overlap the previous refined word and
+        # don't land past the next word's claimed start.
+        prev_min = (refined[-1]["start"] + 0.05) if refined else 0.0
+        next_max = float(words[i + 1]["start"]) - 0.05 if i + 1 < len(words) else float("inf")
+        lo = max(ws - pre, prev_min)
+        hi = min(ws + post, next_max)
+        if hi < lo:
+            hi = lo
+
+        cand = [c for c in (first_pitch_rise(lo, hi), first_rms_rise(lo, hi)) if c is not None]
+        new_start = min(cand) if cand else ws
+        if new_start < prev_min:
+            new_start = prev_min
+        new_end = max(we, new_start + 0.12)
+
+        refined.append({
+            "word": w["word"],
+            "start": round(new_start, 3),
+            "end": round(new_end, 3),
+        })
+
+    # Second pass — preserve contiguity for mid-phrase words while keeping
+    # original pauses intact.  Mid-phrase = Whisper had word.end == next.start.
+    for i in range(len(refined) - 1):
+        orig_end, orig_next_start = orig[i][1], orig[i + 1][0]
+        was_contiguous = abs(orig_end - orig_next_start) < 0.02
+        if was_contiguous:
+            refined[i]["end"] = max(refined[i]["start"] + 0.12, refined[i + 1]["start"])
+
+    n_shifted = sum(1 for i, r in enumerate(refined) if abs(r["start"] - orig[i][0]) > 0.05)
+    avg_shift = (
+        sum(r["start"] - orig[i][0] for i, r in enumerate(refined)) / len(refined)
+        if refined
+        else 0.0
+    )
+    logger.info(
+        "Refined %d/%d word onsets (avg shift %+0.3fs)",
+        n_shifted, len(refined), avg_shift,
+    )
+    return refined
+
+
 def extract_pitch(audio_path: str, denoise: bool = False) -> Tuple[List[float], List[float], List[float]]:
     """
     Extract pitch contour using torchcrepe.

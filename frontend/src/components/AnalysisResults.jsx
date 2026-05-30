@@ -75,11 +75,11 @@ function OverallBadge({ score }) {
     display >= 60 ? 'C' : display >= 50 ? 'D' : 'F'
 
   const gradeColor =
-    display >= 80 ? 'text-emerald-400' : display >= 60 ? 'text-amber-400' : 'text-red-400'
+    display >= 80 ? 'text-emerald-400' : display >= 60 ? 'text-brand-700' : 'text-red-400'
 
   return (
     <div className="text-center mb-6 animate-fade-up">
-      <div className="inline-flex flex-col items-center bg-[#0F0F0F] border border-[#202020] rounded-2xl px-10 py-6 shadow-2xl shadow-black/50">
+      <div className="inline-flex flex-col items-center bg-white border border-gray-200 rounded-2xl px-10 py-6 shadow-2xl shadow-black/50">
         <div className="text-[10px] text-gray-600 tracking-widest mb-3">OVERALL SCORE</div>
         <div className="flex items-end gap-3">
           <span className={`text-7xl font-bold tabular-nums ${gradeColor}`}>{display}</span>
@@ -98,8 +98,8 @@ function OverallBadge({ score }) {
 function FocusSummary({ text }) {
   if (!text) return null
   return (
-    <div className="mb-6 bg-[#0D0D08] border border-amber-500/20 rounded-xl px-5 py-4">
-      <div className="text-[10px] text-amber-500/60 tracking-widest mb-2 font-semibold">COACHING FOCUS</div>
+    <div className="mb-6 bg-brand-50 border border-brand-200 rounded-xl px-5 py-4">
+      <div className="text-[10px] text-brand-700 tracking-widest mb-2 font-semibold">COACHING FOCUS</div>
       <p className="text-sm text-gray-300 leading-relaxed">{text}</p>
     </div>
   )
@@ -131,7 +131,7 @@ function AttemptHistory({ jobId, currentResult }) {
   const delta = last.overall - prev.overall
 
   return (
-    <div className="mb-8 bg-[#0C0C0C] border border-[#1A1A1A] rounded-2xl p-5">
+    <div className="mb-8 bg-white border border-gray-200 rounded-2xl p-5">
       <div className="text-[10px] text-gray-600 tracking-widest mb-4 font-semibold">ATTEMPT HISTORY</div>
       <div className="flex items-end gap-1.5 mb-3">
         {history.map((h, i) => {
@@ -143,7 +143,7 @@ function AttemptHistory({ jobId, currentResult }) {
                 {h.overall}
               </span>
               <div
-                className={`w-full rounded-sm ${isLast ? 'ring-1 ring-amber-500/50' : ''}`}
+                className={`w-full rounded-sm ${isLast ? 'ring-1 ring-brand-600/60' : ''}`}
                 style={{
                   height: `${Math.max(4, (h.overall / 100) * 56)}px`,
                   background: color,
@@ -199,7 +199,7 @@ export default function AnalysisResults({ result, onSingAgain, jobId }) {
       <AttemptHistory jobId={jobId} currentResult={result} />
 
       {/* Dimension gauges */}
-      <div className="grid grid-cols-3 gap-4 mb-10 bg-[#0C0C0C] border border-[#1A1A1A] rounded-2xl p-6">
+      <div className="grid grid-cols-3 gap-4 mb-10 bg-white border border-gray-200 rounded-2xl p-6">
         <CircularGauge score={pitch_score} label="PITCH" />
         <CircularGauge score={timing_score} label="TIMING" />
         <CircularGauge score={dynamics_score} label="DYNAMICS" />
@@ -218,7 +218,7 @@ export default function AnalysisResults({ result, onSingAgain, jobId }) {
             label: 'On-time words',
             value: word_breakdown.filter((w) => w.timing_status === 'on_time').length,
             total: word_breakdown.filter((w) => w.timing_status !== 'missing').length,
-            color: 'text-amber-400',
+            color: 'text-brand-700',
           },
           {
             label: 'Coaching tips',
@@ -227,7 +227,7 @@ export default function AnalysisResults({ result, onSingAgain, jobId }) {
             color: 'text-sky-400',
           },
         ].map((stat) => (
-          <div key={stat.label} className="bg-[#0F0F0F] border border-[#1A1A1A] rounded-xl p-4">
+          <div key={stat.label} className="bg-white border border-gray-200 rounded-xl p-4">
             <div className={`text-2xl font-bold ${stat.color}`}>
               {stat.value}
               {stat.total != null && (
@@ -240,14 +240,14 @@ export default function AnalysisResults({ result, onSingAgain, jobId }) {
       </div>
 
       {/* Tab switcher */}
-      <div className="flex border-b border-[#1A1A1A] mb-6">
+      <div className="flex border-b border-gray-200 mb-6">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
             className={`px-5 py-3 text-xs font-semibold tracking-widest transition-colors ${
               activeTab === t.id
-                ? 'text-amber-400 border-b-2 border-amber-400'
+                ? 'text-brand-700 border-b-2 border-brand-700'
                 : 'text-gray-600 hover:text-gray-400'
             }`}
           >
@@ -277,7 +277,7 @@ export default function AnalysisResults({ result, onSingAgain, jobId }) {
       <div className="flex gap-3 justify-center pb-8">
         <button
           onClick={onSingAgain}
-          className="px-8 py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl transition-colors text-sm"
+          className="px-8 py-3.5 bg-brand-700 hover:bg-brand-800 text-white font-semibold rounded-xl transition-colors text-sm"
         >
           🎤 Sing It Again
         </button>

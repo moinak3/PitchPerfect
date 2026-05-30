@@ -8,7 +8,7 @@ function ExampleClips({ example, jobId, isTiming = false }) {
   const hasUserClip = example.user_clip_start != null && example.user_clip_end != null
 
   return (
-    <div className="rounded-lg border border-[#1C1C1C] bg-[#0A0A0A] p-3 space-y-3">
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3">
       <p className="text-xs text-gray-400 leading-relaxed">{example.description}</p>
 
       {hasClip && !isTiming && (
@@ -46,18 +46,18 @@ function ExampleClips({ example, jobId, isTiming = false }) {
           {/* Divider with timing callout */}
           {example.delta_str && (
             <div className="flex items-center gap-2">
-              <div className="flex-1 h-px bg-[#1E1E1E]" />
-              <span className="text-[9px] text-amber-500/60 font-mono shrink-0">
+              <div className="flex-1 h-px bg-gray-200" />
+              <span className="text-[9px] text-brand-700 font-mono shrink-0">
                 you were {example.delta_str} {example.direction}
               </span>
-              <div className="flex-1 h-px bg-[#1E1E1E]" />
+              <div className="flex-1 h-px bg-gray-200" />
             </div>
           )}
 
           {/* User clip */}
           <div className="space-y-1">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[9px] font-semibold tracking-widest text-amber-500/70">YOU — where you actually sang it</span>
+              <span className="text-[9px] font-semibold tracking-widest text-brand-700">YOU — where you actually sang it</span>
             </div>
             <ClipPlayer
               src={`/api/recording/${jobId}`}
@@ -84,7 +84,7 @@ function DimensionReport({ label, icon, data, jobId, defaultOpen = false, isTimi
     <div className="border border-[#1E1E1E] rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-[#111] transition-colors"
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-brand-50/60 transition-colors"
       >
         <div className="flex items-center gap-3">
           <span className="text-lg">{icon}</span>
@@ -117,7 +117,7 @@ function DimensionReport({ label, icon, data, jobId, defaultOpen = false, isTimi
               <ul className="space-y-2">
                 {tacticalTips.map((tip, i) => (
                   <li key={i} className="flex gap-2 text-sm text-gray-400 leading-relaxed">
-                    <span className="text-amber-500/60 shrink-0 mt-0.5">→</span>
+                    <span className="text-brand-700 shrink-0 mt-0.5">→</span>
                     <span>{tip}</span>
                   </li>
                 ))}
@@ -145,21 +145,21 @@ function CoachingNote({ note, index, jobId }) {
 
   return (
     <div className="flex gap-4 py-4 border-b border-[#131313] last:border-0">
-      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 text-xs font-bold">
+      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-100 border border-brand-300 flex items-center justify-center text-brand-700 text-xs font-bold">
         {index + 1}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="text-xs font-semibold text-gray-300">{note.issue}</span>
           {ts && (
-            <span className="text-[10px] bg-[#1A1A1A] border border-[#252525] text-gray-500 px-2 py-0.5 rounded font-mono">
+            <span className="text-[10px] bg-gray-100 border border-gray-200 text-gray-700 px-2 py-0.5 rounded font-mono">
               {ts}
             </span>
           )}
         </div>
         <p className="text-sm text-gray-400 leading-relaxed mb-3">{note.suggestion}</p>
         {hasClip && (
-          <div className="space-y-1.5 bg-[#0A0A0A] border border-[#1C1C1C] rounded-lg p-3">
+          <div className="space-y-1.5 bg-gray-50 border border-gray-200 rounded-lg p-3">
             <ClipPlayer
               src={`/api/recording/${jobId}`}
               start={userStart}
