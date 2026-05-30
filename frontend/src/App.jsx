@@ -12,28 +12,49 @@ const S = {
   RESULTS: 'results',
 }
 
-function Header({ onNewSong, showBack }) {
+function Header({ onNewSong, showBack, onIdle }) {
   return (
-    <header className="border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 bg-white/85 backdrop-blur z-50">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-brand-700 flex items-center justify-center shadow-sm">
-          <span className="text-white font-serif italic font-semibold text-base leading-none">P</span>
-        </div>
-        <h1 className="classic-heading text-2xl font-semibold tracking-tight text-black">
-          <span className="text-brand-700">Pitch</span>Perfect
-        </h1>
-        <span className="hidden sm:inline text-[10px] text-brand-700 border border-brand-200 bg-brand-50 px-2 py-0.5 rounded-full tracking-widest font-medium">
-          VOCAL COACH
-        </span>
-      </div>
-      {showBack && (
-        <button
-          onClick={onNewSong}
-          className="text-xs text-gray-600 hover:text-brand-700 transition-colors font-medium"
+    <header className="border-b border-gray-200 px-6 py-4 sticky top-0 bg-white/85 backdrop-blur z-50">
+      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+        <a
+          href="#top"
+          onClick={(e) => { e.preventDefault(); onIdle?.() }}
+          className="flex items-center gap-3 group"
+          aria-label="PitchPerfect home"
         >
-          ← New Song
-        </button>
-      )}
+          <div className="w-9 h-9 rounded-full bg-brand-700 flex items-center justify-center shadow-sm group-hover:bg-brand-800 transition-colors">
+            <span className="text-white font-serif italic font-semibold text-base leading-none">P</span>
+          </div>
+          <h1 className="classic-heading text-2xl font-semibold tracking-tight text-black">
+            <span className="text-brand-700">Pitch</span>Perfect
+          </h1>
+          <span className="hidden sm:inline text-[10px] text-brand-700 border border-brand-200 bg-brand-50 px-2 py-0.5 rounded-full tracking-widest font-medium">
+            VOCAL COACH
+          </span>
+        </a>
+
+        <nav className="hidden md:flex items-center gap-6 text-sm text-gray-600">
+          <a href="#how-it-works" className="hover:text-brand-700 transition-colors">How it works</a>
+          <a href="#why" className="hover:text-brand-700 transition-colors">Why PitchPerfect</a>
+          <a href="#faq" className="hover:text-brand-700 transition-colors">FAQ</a>
+          <a
+            href="https://github.com/moinak3/PitchPerfect"
+            target="_blank" rel="noopener noreferrer"
+            className="hover:text-brand-700 transition-colors flex items-center gap-1.5"
+          >
+            <span aria-hidden>★</span> GitHub
+          </a>
+        </nav>
+
+        {showBack && (
+          <button
+            onClick={onNewSong}
+            className="text-xs text-gray-600 hover:text-brand-700 transition-colors font-medium border border-gray-300 hover:border-brand-300 px-3 py-1.5 rounded-full"
+          >
+            ← New song
+          </button>
+        )}
+      </div>
     </header>
   )
 }
@@ -257,8 +278,8 @@ export default function App() {
   const showBack = appState !== S.IDLE
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] text-black font-sans flex flex-col">
-      <Header onNewSong={handleNewSong} showBack={showBack} />
+    <div id="top" className="min-h-screen bg-[#FAFAFA] text-black font-sans flex flex-col">
+      <Header onNewSong={handleNewSong} showBack={showBack} onIdle={handleNewSong} />
 
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-10">
         {error && appState !== S.PROCESSING && (
@@ -297,16 +318,36 @@ export default function App() {
         )}
       </main>
 
-      <footer className="border-t border-gray-200 bg-white">
-        <div className="max-w-4xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
-          <div className="flex items-center gap-2">
-            <span className="classic-heading text-base text-brand-700 font-semibold">PitchPerfect</span>
-            <span>— AI-powered vocal coaching</span>
+      <footer className="border-t border-gray-200 bg-white mt-16">
+        <div className="max-w-5xl mx-auto px-6 py-10 grid grid-cols-1 sm:grid-cols-3 gap-8 text-sm">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-full bg-brand-700 flex items-center justify-center">
+                <span className="text-white font-serif italic font-semibold text-sm leading-none">P</span>
+              </div>
+              <span className="classic-heading text-xl text-black font-semibold">PitchPerfect</span>
+            </div>
+            <p className="text-gray-600 text-xs leading-relaxed max-w-[20rem]">
+              AI vocal coaching for any song. Runs entirely on your laptop — your voice never leaves your machine.
+            </p>
           </div>
-          <div className="flex items-center gap-5">
-            <span>Runs locally · no cloud APIs</span>
-            <span className="text-gray-300">·</span>
-            <span>© {new Date().getFullYear()}</span>
+
+          <div className="flex flex-col gap-2">
+            <div className="text-[10px] font-semibold tracking-widest text-gray-400 mb-1">PRODUCT</div>
+            <a href="#how-it-works" className="text-gray-600 hover:text-brand-700 transition-colors">How it works</a>
+            <a href="#why" className="text-gray-600 hover:text-brand-700 transition-colors">Why PitchPerfect</a>
+            <a href="#faq" className="text-gray-600 hover:text-brand-700 transition-colors">FAQ</a>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="text-[10px] font-semibold tracking-widest text-gray-400 mb-1">PROJECT</div>
+            <a
+              href="https://github.com/moinak3/PitchPerfect"
+              target="_blank" rel="noopener noreferrer"
+              className="text-gray-600 hover:text-brand-700 transition-colors"
+            >Source on GitHub</a>
+            <span className="text-gray-600">Privacy by design</span>
+            <span className="text-gray-400 text-xs mt-2">© {new Date().getFullYear()} PitchPerfect</span>
           </div>
         </div>
       </footer>

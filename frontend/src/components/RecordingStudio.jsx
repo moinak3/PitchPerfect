@@ -1107,7 +1107,8 @@ export default function RecordingStudio({
               <button
                 onClick={startRecording}
                 disabled={countdown !== null}
-                className="group relative w-24 h-24 rounded-full bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-red-200 hover:scale-105 ring-4 ring-white"
+                aria-label="Start recording your singing"
+                className="group relative w-24 h-24 rounded-full bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-red-200 hover:scale-105 ring-4 ring-white focus:outline-none focus:ring-4 focus:ring-brand-300"
               >
                 <span className="text-white font-bold text-base tracking-wider">REC</span>
               </button>
