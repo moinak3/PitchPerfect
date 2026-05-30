@@ -81,13 +81,13 @@ image = (
     volumes={DATA_DIR: volume},
     # 10-minute timeout covers long songs + Whisper transcription.
     timeout=600,
-    # Up to 5 concurrent API requests per container (FastAPI is async).
-    # For 5-10 beta users this handles burst without spawning a second GPU.
-    allow_concurrent_inputs=5,
     # Scale to zero after 5 minutes idle — no idle GPU cost.
     # First cold start: ~90s (pip cache warm after first deploy).
     scaledown_window=300,
 )
+# Up to 5 concurrent API requests per container (FastAPI is async).
+# For 5-10 beta users this handles burst without spawning a second GPU.
+@modal.concurrent(max_inputs=5)
 @modal.asgi_app()
 def fastapi_app():
     """Called once per container start to return the ASGI app."""
