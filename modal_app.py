@@ -66,7 +66,7 @@ image = (
     )
     # Bake backend source into the image.
     # Re-run `modal deploy modal_app.py` after any backend code change.
-    .copy_local_dir("./backend", "/root/backend")
+    .add_local_dir("./backend", remote_path="/root/backend")
 )
 
 # ---------------------------------------------------------------------------
