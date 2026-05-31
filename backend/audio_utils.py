@@ -1,8 +1,6 @@
 import os
 import math
 import subprocess
-import threading
-import time
 import uuid
 import logging
 from pathlib import Path
@@ -14,69 +12,41 @@ import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
-# Serialise bgutil server starts — only one instance at a time (port 4416).
-_bgutil_lock = threading.Lock()
+# Node path for globally installed npm packages
+_NODE_PATH = "/usr/local/lib/node_modules"
 
-# Candidate install locations for the bgutil server script (npm -g)
-_BGUTIL_CANDIDATES = [
-    "/usr/local/lib/node_modules/bgutil-ytdlp-pot-provider/build/server.js",
-    "/usr/lib/node_modules/bgutil-ytdlp-pot-provider/build/server.js",
-]
-_BGUTIL_PORT = 4416
+# Inline Node.js script: calls youtube-po-token-generator and prints JSON to stdout.
+_POT_SCRIPT = """
+const { generate } = require('youtube-po-token-generator');
+generate()
+  .then(r => { process.stdout.write(JSON.stringify(r)); process.exit(0); })
+  .catch(e => { process.stderr.write(String(e)); process.exit(1); });
+"""
 
 
 def _get_po_token() -> Tuple[str, str]:
-    """Start the bgutil PO-token server, fetch a (visitor_data, po_token) pair,
-    then shut the server down.  Thread-safe: uses a process-level lock so only
-    one bgutil instance runs at a time (they all bind to port 4416)."""
-    import requests as _req
+    """Generate a YouTube (visitorData, poToken) pair via youtube-po-token-generator.
 
-    server_script = next((s for s in _BGUTIL_CANDIDATES if os.path.exists(s)), None)
-    if not server_script:
-        raise RuntimeError(
-            "bgutil-ytdlp-pot-provider not found. "
-            "Expected at one of: " + ", ".join(_BGUTIL_CANDIDATES)
-        )
+    Runs a one-shot Node.js subprocess — no server, no port conflicts.
+    Returns (visitor_data, po_token) as expected by pytubefix.
+    """
+    import json as _json
 
-    with _bgutil_lock:
-        proc = subprocess.Popen(
-            ["node", server_script],
-            env={**os.environ, "PORT": str(_BGUTIL_PORT)},
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        try:
-            # Wait up to 30 s for the HTTP server to accept connections.
-            ready = False
-            for _ in range(60):
-                time.sleep(0.5)
-                try:
-                    _req.get(f"http://127.0.0.1:{_BGUTIL_PORT}/", timeout=1)
-                    ready = True
-                    break
-                except Exception:
-                    continue
-
-            if not ready:
-                raise RuntimeError("bgutil server did not start within 30 seconds")
-
-            resp = _req.post(
-                f"http://127.0.0.1:{_BGUTIL_PORT}/get_pot",
-                json={},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            visitor_data = data.get("visitor_data", "")
-            po_token = data.get("po_token", "")
-            logger.info("bgutil PO token obtained (visitor_data len=%d)", len(visitor_data))
-            return visitor_data, po_token
-        finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+    node_bin = subprocess.run(["which", "node"], capture_output=True, text=True).stdout.strip() or "node"
+    result = subprocess.run(
+        [node_bin, "-e", _POT_SCRIPT],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={**os.environ, "NODE_PATH": _NODE_PATH},
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"PO token generation failed: {result.stderr[:300]}")
+    data = _json.loads(result.stdout)
+    visitor_data = data.get("visitorData", "")
+    po_token = data.get("poToken", "")
+    logger.info("PO token obtained (visitorData len=%d)", len(visitor_data))
+    return visitor_data, po_token
 
 TEMP_DIR = Path(os.environ.get("PP_TEMP_DIR", "./temp"))
 SR = 16000
@@ -112,8 +82,9 @@ def download_youtube(url: str, job_id: str) -> str:
     use_oauth = Path(token_file).exists()
 
     # PO token: required for cloud-IP downloads (YouTube's BotGuard check).
-    # Generated fresh per-request via bgutil-ytdlp-pot-provider.
-    use_po = os.path.exists(_BGUTIL_CANDIDATES[0]) or os.path.exists(_BGUTIL_CANDIDATES[1])
+    # Generated via youtube-po-token-generator (npm -g) if available.
+    pot_module = os.path.join(_NODE_PATH, "youtube-po-token-generator")
+    use_po = os.path.isdir(pot_module)
 
     def _po_verifier():
         return _get_po_token()

@@ -45,10 +45,9 @@ image = (
         "nodejs",       # bgutil PO token server + yt-dlp JS runtime
         "npm",          # needed to install bgutil
     )
-    # bgutil-ytdlp-pot-provider: Node.js service that solves Google's BotGuard
-    # challenge and returns a (visitor_data, po_token) pair, allowing pytubefix
-    # to download from YouTube on cloud datacenter IPs.
-    .run_commands("npm install -g github:Brainicism/bgutil-ytdlp-pot-provider")
+    # youtube-po-token-generator: generates YouTube PO tokens in pure Node.js
+    # (no browser/server needed) so pytubefix can download from cloud IPs.
+    .run_commands("npm install -g youtube-po-token-generator")
     .pip_install(
         # Web framework
         "fastapi>=0.104.0",
