@@ -46,9 +46,10 @@ def download_youtube(url: str, job_id: str) -> str:
     # YouTube bot-check bypass: use cookies if available on the Modal Volume,
     # otherwise fall back to the Android player client (works on most cloud IPs).
     cookies_path = Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent / "youtube_cookies.txt"
-    cookie_args = ["--cookies", str(cookies_path)] if cookies_path.exists() else [
-        "--extractor-args", "youtube:player_client=android,mweb"
-    ]
+    # tv_embedded client skips both the bot check and the nsig challenge.
+    # Cookies are passed on top for authenticated access (avoids age-gating etc).
+    extractor_args = ["--extractor-args", "youtube:player_client=tv_embedded,android"]
+    cookie_args = (["--cookies", str(cookies_path)] if cookies_path.exists() else []) + extractor_args
 
     cmd = [
         ytdlp_bin,

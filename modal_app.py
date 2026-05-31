@@ -42,10 +42,8 @@ image = (
         "ffmpeg",       # audio conversion throughout the pipeline
         "libsndfile1",  # required by soundfile / librosa
         "git",          # some pip packages need git at install time
-        "nodejs",       # yt-dlp needs JS to solve YouTube's n-sig challenge
+        "nodejs",       # yt-dlp JS runtime for n-sig challenge solving
     )
-    # Debian installs nodejs as `nodejs`, but yt-dlp looks for `node`
-    .run_commands("ln -sf /usr/bin/nodejs /usr/bin/node")
     .pip_install(
         # Web framework
         "fastapi>=0.104.0",
