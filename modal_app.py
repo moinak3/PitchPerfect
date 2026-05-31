@@ -48,7 +48,7 @@ image = (
     # bgutil-ytdlp-pot-provider: Node.js service that solves Google's BotGuard
     # challenge and returns a (visitor_data, po_token) pair, allowing pytubefix
     # to download from YouTube on cloud datacenter IPs.
-    .run_commands("npm install -g bgutil-ytdlp-pot-provider")
+    .run_commands("npm install -g github:Brainicism/bgutil-ytdlp-pot-provider")
     .pip_install(
         # Web framework
         "fastapi>=0.104.0",
