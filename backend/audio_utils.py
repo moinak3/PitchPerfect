@@ -40,8 +40,19 @@ def download_youtube(url: str, job_id: str) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     wav_out = str(out_dir / "original.wav")
 
+    # OAuth token stored on the Modal Volume — generated once with scripts/auth_youtube.py
+    token_file = str(Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent / "yt_oauth_token.json")
+    use_oauth = Path(token_file).exists()
+    if not use_oauth:
+        logger.warning("[%s] No OAuth token found at %s — attempting unauthenticated download", job_id, token_file)
+
     try:
-        yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
+        yt = YouTube(
+            url,
+            use_oauth=use_oauth,
+            allow_oauth_cache=True,
+            token_file=token_file if use_oauth else None,
+        )
         # Prefer highest-bitrate audio-only stream (m4a/webm)
         stream = (
             yt.streams

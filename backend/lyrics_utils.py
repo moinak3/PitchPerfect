@@ -71,10 +71,15 @@ def lookup_lyrics(artist: str, title: str) -> Optional[str]:
 
 def extract_youtube_title(url: str) -> Optional[str]:
     """Return the video title string, trying pytubefix first then yt-dlp."""
-    # pytubefix: pure Python, no JS needed, works on cloud IPs
+    # pytubefix: pure Python, no JS needed, works on cloud IPs with OAuth token
     try:
+        import os
+        from pathlib import Path
         from pytubefix import YouTube
-        return YouTube(url).title
+        token_file = str(Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent / "yt_oauth_token.json")
+        use_oauth = Path(token_file).exists()
+        return YouTube(url, use_oauth=use_oauth, allow_oauth_cache=True,
+                       token_file=token_file if use_oauth else None).title
     except Exception as e:
         logger.warning("pytubefix title extraction failed: %s", e)
 
