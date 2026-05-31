@@ -54,6 +54,9 @@ def download_youtube(url: str, job_id: str) -> str:
         "-x",
         "--audio-format", "wav",
         "--audio-quality", "0",
+        # Tell yt-dlp to use the installed nodejs for nsig challenge solving.
+        # Without this, yt-dlp defaults to deno (not installed) and audio formats are missing.
+        "--js-runtimes", "node",
         *cookie_args,
         "-o", str(out_dir / "original.%(ext)s"),
         "--no-playlist",
