@@ -12,42 +12,6 @@ import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
-# Node path for globally installed npm packages
-_NODE_PATH = "/usr/local/lib/node_modules"
-
-# Inline Node.js script: calls youtube-po-token-generator and prints JSON to stdout.
-_POT_SCRIPT = """
-const { generate } = require('youtube-po-token-generator');
-generate()
-  .then(r => { process.stdout.write(JSON.stringify(r)); process.exit(0); })
-  .catch(e => { process.stderr.write(String(e)); process.exit(1); });
-"""
-
-
-def _get_po_token() -> Tuple[str, str]:
-    """Generate a YouTube (visitorData, poToken) pair via youtube-po-token-generator.
-
-    Runs a one-shot Node.js subprocess — no server, no port conflicts.
-    Returns (visitor_data, po_token) as expected by pytubefix.
-    """
-    import json as _json
-
-    node_bin = subprocess.run(["which", "node"], capture_output=True, text=True).stdout.strip() or "node"
-    result = subprocess.run(
-        [node_bin, "-e", _POT_SCRIPT],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env={**os.environ, "NODE_PATH": _NODE_PATH},
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"PO token generation failed: {result.stderr[:300]}")
-    data = _json.loads(result.stdout)
-    visitor_data = data.get("visitorData", "")
-    po_token = data.get("poToken", "")
-    logger.info("PO token obtained (visitorData len=%d)", len(visitor_data))
-    return visitor_data, po_token
-
 TEMP_DIR = Path(os.environ.get("PP_TEMP_DIR", "./temp"))
 SR = 16000
 HOP_LENGTH = 512
@@ -66,56 +30,51 @@ def normalize_audio(audio_path: str, out_path: Optional[str] = None) -> str:
 def download_youtube(url: str, job_id: str) -> str:
     """Download audio from YouTube URL and return path to normalized WAV.
 
-    Uses pytubefix (pure-Python, no JS runtime needed) which reliably handles
-    YouTube's nsig challenge on cloud IPs where yt-dlp's JS solver struggles.
+    Uses yt-dlp with browser cookies (stored on the Modal Volume) to pass
+    YouTube's bot check. nodejs is available in the container for nsig solving.
     """
-    from pytubefix import YouTube
-    from pytubefix.exceptions import PytubeFixError
+    import shutil, sys
 
     out_dir = TEMP_DIR / job_id
     out_dir.mkdir(parents=True, exist_ok=True)
     wav_out = str(out_dir / "original.wav")
 
-    # OAuth token on the Modal Volume (run scripts/auth_youtube.py once to generate)
+    ytdlp_bin = shutil.which("yt-dlp") or str(Path(sys.executable).parent / "yt-dlp")
+
+    # Cookies uploaded to the Modal Volume bypass YouTube's cloud-IP bot check.
+    # Upload with: modal volume put pitchperfect-data ~/Downloads/youtube.com_cookies.txt /youtube_cookies.txt
     data_root = Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent
-    token_file = str(data_root / "yt_oauth_token.json")
-    use_oauth = Path(token_file).exists()
+    cookies_path = data_root / "youtube_cookies.txt"
+    cookie_args = ["--cookies", str(cookies_path)] if cookies_path.exists() else []
+    if not cookie_args:
+        logger.warning("[%s] No youtube_cookies.txt on Volume — download may be blocked", job_id)
 
-    # PO token: required for cloud-IP downloads (YouTube's BotGuard check).
-    # Generated via youtube-po-token-generator (npm -g) if available.
-    pot_module = os.path.join(_NODE_PATH, "youtube-po-token-generator")
-    use_po = os.path.isdir(pot_module)
+    cmd = [
+        ytdlp_bin,
+        "-x",
+        "--audio-format", "wav",
+        "--audio-quality", "0",
+        *cookie_args,
+        "-o", str(out_dir / "original.%(ext)s"),
+        "--no-playlist",
+        "--retries", "3",
+        url,
+    ]
 
-    def _po_verifier():
-        return _get_po_token()
+    logger.info("[%s] yt-dlp: %s", job_id, " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
-    logger.info("[%s] YouTube download: use_oauth=%s use_po_token=%s", job_id, use_oauth, use_po)
+    if result.returncode != 0:
+        raise RuntimeError(f"yt-dlp failed:\n{result.stderr[-800:]}")
 
-    try:
-        yt = YouTube(
-            url,
-            use_oauth=use_oauth,
-            allow_oauth_cache=True,
-            token_file=token_file if use_oauth else None,
-            use_po_token=use_po,
-            po_token_verifier=_po_verifier if use_po else None,
-        )
-        stream = (
-            yt.streams
-            .filter(only_audio=True)
-            .order_by("abr")
-            .last()
-        )
-        if stream is None:
-            raise RuntimeError("No audio stream found for this YouTube video.")
+    audio_exts = {".wav", ".mp3", ".m4a", ".webm", ".opus", ".ogg", ".aac"}
+    candidates = [p for p in out_dir.iterdir() if p.suffix in audio_exts and p.stem == "original"]
+    if not candidates:
+        candidates = [p for p in out_dir.iterdir() if p.suffix in audio_exts]
+    if not candidates:
+        raise RuntimeError(f"No audio file found after yt-dlp.\nstdout: {result.stdout[-300:]}")
 
-        logger.info("[%s] Downloading: %s (%s)", job_id, yt.title, stream.mime_type)
-        raw_path = stream.download(output_path=str(out_dir), filename="original")
-    except PytubeFixError as e:
-        raise RuntimeError(f"YouTube download failed: {e}") from e
-
-    return normalize_audio(raw_path, wav_out)
-
+    return normalize_audio(str(candidates[0]), wav_out)
 
 def separate_vocals(
     audio_path: str, job_id: str, update_fn=None

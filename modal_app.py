@@ -42,12 +42,8 @@ image = (
         "ffmpeg",       # audio conversion throughout the pipeline
         "libsndfile1",  # required by soundfile / librosa
         "git",          # some pip packages need git at install time
-        "nodejs",       # bgutil PO token server + yt-dlp JS runtime
-        "npm",          # needed to install bgutil
+        "nodejs",       # yt-dlp uses node to solve YouTube's nsig challenge
     )
-    # youtube-po-token-generator: generates YouTube PO tokens in pure Node.js
-    # (no browser/server needed) so pytubefix can download from cloud IPs.
-    .run_commands("npm install -g youtube-po-token-generator")
     .pip_install(
         # Web framework
         "fastapi>=0.104.0",
@@ -66,10 +62,10 @@ image = (
         "demucs>=4.0.0",
         # Transcription (downloads whisper model on first run, then cached)
         "openai-whisper>=20231117",
-        # YouTube download
-        "pytubefix",       # pure-Python YouTube client with PO token support
-        "requests",        # used by _get_po_token() to talk to bgutil server
-        "yt-dlp",          # kept for title extraction fallback
+        # YouTube download — cookies on Modal Volume bypass bot check;
+        # nodejs handles the nsig challenge
+        "yt-dlp",
+        "pytubefix",    # kept for title extraction fallback
     )
     # Bake backend source into the image.
     # Re-run `modal deploy modal_app.py` after any backend code change.
