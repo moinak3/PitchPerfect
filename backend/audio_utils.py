@@ -28,58 +28,36 @@ def normalize_audio(audio_path: str, out_path: Optional[str] = None) -> str:
 
 
 def download_youtube(url: str, job_id: str) -> str:
-    """Download audio from YouTube URL and return path to normalized WAV."""
-    import shutil
-    import sys
+    """Download audio from YouTube URL and return path to normalized WAV.
+
+    Uses pytubefix (pure-Python, no JS runtime needed) which reliably handles
+    YouTube's nsig challenge on cloud IPs where yt-dlp's JS solver struggles.
+    """
+    from pytubefix import YouTube
+    from pytubefix.exceptions import PytubeFixError
 
     out_dir = TEMP_DIR / job_id
     out_dir.mkdir(parents=True, exist_ok=True)
     wav_out = str(out_dir / "original.wav")
 
-    # Build yt-dlp command — no --postprocessor-args (we normalize with librosa)
-    # Provide node.js path so yt-dlp can run JS extraction
-    node_path = shutil.which("node") or "/opt/homebrew/bin/node"
-    ytdlp_bin = shutil.which("yt-dlp") or str(
-        Path(sys.executable).parent / "yt-dlp"
-    )
-
-    # YouTube bot-check bypass: use cookies if available on the Modal Volume,
-    # otherwise fall back to the Android player client (works on most cloud IPs).
-    cookies_path = Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent / "youtube_cookies.txt"
-    # tv_embedded client skips both the bot check and the nsig challenge.
-    # Cookies are passed on top for authenticated access (avoids age-gating etc).
-    extractor_args = ["--extractor-args", "youtube:player_client=tv_embedded,android"]
-    cookie_args = (["--cookies", str(cookies_path)] if cookies_path.exists() else []) + extractor_args
-
-    cmd = [
-        ytdlp_bin,
-        "-x",
-        "--audio-format", "wav",
-        "--audio-quality", "0",
-        *cookie_args,
-        "-o", str(out_dir / "original.%(ext)s"),
-        "--no-playlist",
-        "--retries", "3",
-        url,
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"yt-dlp failed:\n{result.stderr[-600:]}"
+    try:
+        yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
+        # Prefer highest-bitrate audio-only stream (m4a/webm)
+        stream = (
+            yt.streams
+            .filter(only_audio=True)
+            .order_by("abr")
+            .last()
         )
+        if stream is None:
+            raise RuntimeError("No audio stream found for this YouTube video.")
 
-    # Find downloaded file (yt-dlp names it original.<ext>)
-    audio_exts = {".wav", ".mp3", ".m4a", ".webm", ".opus", ".ogg", ".aac"}
-    candidates = [p for p in out_dir.iterdir() if p.suffix in audio_exts]
-    if not candidates:
-        raise RuntimeError(
-            f"No audio file found in {out_dir} after yt-dlp.\n"
-            f"yt-dlp stdout: {result.stdout[-300:]}"
-        )
+        logger.info("[%s] Downloading YouTube audio: %s (%s)", job_id, yt.title, stream.mime_type)
+        raw_path = stream.download(output_path=str(out_dir), filename="original")
+    except PytubeFixError as e:
+        raise RuntimeError(f"YouTube download failed: {e}") from e
 
-    return normalize_audio(str(candidates[0]), wav_out)
+    return normalize_audio(raw_path, wav_out)
 
 
 def separate_vocals(

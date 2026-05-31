@@ -5,6 +5,7 @@ librosa>=0.10.0
 torchcrepe>=0.0.20
 pydub>=0.25.1
 yt-dlp>=2023.10.13
+pytubefix>=8.0.0
 demucs>=4.0.0
 openai-whisper>=20231117
 numpy>=1.24.0

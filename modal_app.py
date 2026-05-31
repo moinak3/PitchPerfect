@@ -62,7 +62,9 @@ image = (
         "demucs>=4.0.0",
         # Transcription (downloads whisper model on first run, then cached)
         "openai-whisper>=20231117",
-        # YouTube download — keep at latest, older versions get blocked by YouTube
+        # YouTube download — pytubefix handles nsig in pure Python (no JS needed),
+        # yt-dlp kept as fallback for title extraction
+        "pytubefix",
         "yt-dlp",
     )
     # Bake backend source into the image.

@@ -70,7 +70,15 @@ def lookup_lyrics(artist: str, title: str) -> Optional[str]:
 
 
 def extract_youtube_title(url: str) -> Optional[str]:
-    """Return the video title string using yt-dlp --print title."""
+    """Return the video title string, trying pytubefix first then yt-dlp."""
+    # pytubefix: pure Python, no JS needed, works on cloud IPs
+    try:
+        from pytubefix import YouTube
+        return YouTube(url).title
+    except Exception as e:
+        logger.warning("pytubefix title extraction failed: %s", e)
+
+    # Fallback: yt-dlp (may fail on cloud IPs but worth trying)
     try:
         res = subprocess.run(
             ["yt-dlp", "--print", "title", "--no-playlist", url],
@@ -79,7 +87,7 @@ def extract_youtube_title(url: str) -> Optional[str]:
         title = res.stdout.strip()
         return title if title else None
     except Exception as e:
-        logger.warning("Could not extract YouTube title: %s", e)
+        logger.warning("yt-dlp title extraction also failed: %s", e)
         return None
 
 
