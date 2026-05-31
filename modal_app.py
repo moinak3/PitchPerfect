@@ -42,8 +42,13 @@ image = (
         "ffmpeg",       # audio conversion throughout the pipeline
         "libsndfile1",  # required by soundfile / librosa
         "git",          # some pip packages need git at install time
-        "nodejs",       # yt-dlp JS runtime for n-sig challenge solving
+        "nodejs",       # bgutil PO token server + yt-dlp JS runtime
+        "npm",          # needed to install bgutil
     )
+    # bgutil-ytdlp-pot-provider: Node.js service that solves Google's BotGuard
+    # challenge and returns a (visitor_data, po_token) pair, allowing pytubefix
+    # to download from YouTube on cloud datacenter IPs.
+    .run_commands("npm install -g bgutil-ytdlp-pot-provider")
     .pip_install(
         # Web framework
         "fastapi>=0.104.0",
@@ -62,10 +67,10 @@ image = (
         "demucs>=4.0.0",
         # Transcription (downloads whisper model on first run, then cached)
         "openai-whisper>=20231117",
-        # YouTube download — pytubefix handles nsig in pure Python (no JS needed),
-        # yt-dlp kept as fallback for title extraction
-        "pytubefix",
-        "yt-dlp",
+        # YouTube download
+        "pytubefix",       # pure-Python YouTube client with PO token support
+        "requests",        # used by _get_po_token() to talk to bgutil server
+        "yt-dlp",          # kept for title extraction fallback
     )
     # Bake backend source into the image.
     # Re-run `modal deploy modal_app.py` after any backend code change.

@@ -1,6 +1,8 @@
 import os
 import math
 import subprocess
+import threading
+import time
 import uuid
 import logging
 from pathlib import Path
@@ -11,6 +13,70 @@ import librosa
 import soundfile as sf
 
 logger = logging.getLogger(__name__)
+
+# Serialise bgutil server starts — only one instance at a time (port 4416).
+_bgutil_lock = threading.Lock()
+
+# Candidate install locations for the bgutil server script (npm -g)
+_BGUTIL_CANDIDATES = [
+    "/usr/local/lib/node_modules/bgutil-ytdlp-pot-provider/build/server.js",
+    "/usr/lib/node_modules/bgutil-ytdlp-pot-provider/build/server.js",
+]
+_BGUTIL_PORT = 4416
+
+
+def _get_po_token() -> Tuple[str, str]:
+    """Start the bgutil PO-token server, fetch a (visitor_data, po_token) pair,
+    then shut the server down.  Thread-safe: uses a process-level lock so only
+    one bgutil instance runs at a time (they all bind to port 4416)."""
+    import requests as _req
+
+    server_script = next((s for s in _BGUTIL_CANDIDATES if os.path.exists(s)), None)
+    if not server_script:
+        raise RuntimeError(
+            "bgutil-ytdlp-pot-provider not found. "
+            "Expected at one of: " + ", ".join(_BGUTIL_CANDIDATES)
+        )
+
+    with _bgutil_lock:
+        proc = subprocess.Popen(
+            ["node", server_script],
+            env={**os.environ, "PORT": str(_BGUTIL_PORT)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            # Wait up to 30 s for the HTTP server to accept connections.
+            ready = False
+            for _ in range(60):
+                time.sleep(0.5)
+                try:
+                    _req.get(f"http://127.0.0.1:{_BGUTIL_PORT}/", timeout=1)
+                    ready = True
+                    break
+                except Exception:
+                    continue
+
+            if not ready:
+                raise RuntimeError("bgutil server did not start within 30 seconds")
+
+            resp = _req.post(
+                f"http://127.0.0.1:{_BGUTIL_PORT}/get_pot",
+                json={},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            visitor_data = data.get("visitor_data", "")
+            po_token = data.get("po_token", "")
+            logger.info("bgutil PO token obtained (visitor_data len=%d)", len(visitor_data))
+            return visitor_data, po_token
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
 TEMP_DIR = Path(os.environ.get("PP_TEMP_DIR", "./temp"))
 SR = 16000
@@ -40,11 +106,19 @@ def download_youtube(url: str, job_id: str) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     wav_out = str(out_dir / "original.wav")
 
-    # OAuth token stored on the Modal Volume — generated once with scripts/auth_youtube.py
-    token_file = str(Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent / "yt_oauth_token.json")
+    # OAuth token on the Modal Volume (run scripts/auth_youtube.py once to generate)
+    data_root = Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent
+    token_file = str(data_root / "yt_oauth_token.json")
     use_oauth = Path(token_file).exists()
-    if not use_oauth:
-        logger.warning("[%s] No OAuth token found at %s — attempting unauthenticated download", job_id, token_file)
+
+    # PO token: required for cloud-IP downloads (YouTube's BotGuard check).
+    # Generated fresh per-request via bgutil-ytdlp-pot-provider.
+    use_po = os.path.exists(_BGUTIL_CANDIDATES[0]) or os.path.exists(_BGUTIL_CANDIDATES[1])
+
+    def _po_verifier():
+        return _get_po_token()
+
+    logger.info("[%s] YouTube download: use_oauth=%s use_po_token=%s", job_id, use_oauth, use_po)
 
     try:
         yt = YouTube(
@@ -52,8 +126,9 @@ def download_youtube(url: str, job_id: str) -> str:
             use_oauth=use_oauth,
             allow_oauth_cache=True,
             token_file=token_file if use_oauth else None,
+            use_po_token=use_po,
+            po_token_verifier=_po_verifier if use_po else None,
         )
-        # Prefer highest-bitrate audio-only stream (m4a/webm)
         stream = (
             yt.streams
             .filter(only_audio=True)
@@ -63,7 +138,7 @@ def download_youtube(url: str, job_id: str) -> str:
         if stream is None:
             raise RuntimeError("No audio stream found for this YouTube video.")
 
-        logger.info("[%s] Downloading YouTube audio: %s (%s)", job_id, yt.title, stream.mime_type)
+        logger.info("[%s] Downloading: %s (%s)", job_id, yt.title, stream.mime_type)
         raw_path = stream.download(output_path=str(out_dir), filename="original")
     except PytubeFixError as e:
         raise RuntimeError(f"YouTube download failed: {e}") from e
