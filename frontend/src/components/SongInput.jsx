@@ -214,7 +214,11 @@ function FaqItem({ q, a }) {
 }
 
 export default function SongInput({ onSubmit }) {
-  const [tab, setTab] = useState('youtube')
+  // YouTube downloads are blocked on cloud infrastructure (datacenter IPs) —
+  // only enable the YouTube tab when running locally.
+  const isCloud = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+
+  const [tab, setTab] = useState(isCloud ? 'file' : 'youtube')
   const [url, setUrl] = useState('https://www.youtube.com/watch?v=vGJTaP6anOU')
   const [file, setFile] = useState(null)
   const [dragOver, setDragOver] = useState(false)
@@ -261,7 +265,7 @@ export default function SongInput({ onSubmit }) {
       {/* Hero */}
       <div className="text-center mb-10 pt-6">
         <div className="inline-block text-[10px] tracking-widest text-brand-700 bg-brand-50 border border-brand-200 px-3 py-1 rounded-full mb-5 font-semibold">
-          AI VOCAL COACH · RUNS ON YOUR LAPTOP
+          AI VOCAL COACH · GPU-POWERED ANALYSIS
         </div>
         <h2 className="classic-heading text-4xl sm:text-5xl md:text-6xl font-semibold mb-5 tracking-tight text-black leading-[1.05]">
           Sing any song.<br />
@@ -269,7 +273,7 @@ export default function SongInput({ onSubmit }) {
         </h2>
         <p className="text-gray-600 text-sm sm:text-base md:text-lg max-w-xl mx-auto leading-relaxed">
           PitchPerfect listens like a vocal coach — grading your pitch, timing, and energy on whatever song you bring.
-          Word-by-word feedback in five minutes. No catalog, no cloud, no subscription.
+          Word-by-word feedback in five minutes. No catalog, no subscription.
         </p>
       </div>
 
@@ -277,22 +281,46 @@ export default function SongInput({ onSubmit }) {
       <div id="coach-form" className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-10 shadow-sm scroll-mt-24">
         {/* Tabs */}
         <div className="flex border-b border-gray-200 bg-brand-50/50">
-          {['youtube', 'file'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-4 text-xs font-semibold tracking-widest transition-colors ${
-                tab === t
-                  ? 'text-brand-700 border-b-2 border-brand-700 bg-white'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t === 'youtube' ? 'YOUTUBE URL' : 'UPLOAD FILE'}
-            </button>
-          ))}
+          {/* YouTube tab — disabled in cloud mode */}
+          <button
+            onClick={() => !isCloud && setTab('youtube')}
+            disabled={isCloud}
+            title={isCloud ? 'YouTube links work in the local version' : undefined}
+            className={`flex-1 py-4 text-xs font-semibold tracking-widest transition-colors ${
+              isCloud
+                ? 'text-gray-300 cursor-not-allowed'
+                : tab === 'youtube'
+                ? 'text-brand-700 border-b-2 border-brand-700 bg-white'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            YOUTUBE URL{isCloud ? ' (local only)' : ''}
+          </button>
+          <button
+            onClick={() => setTab('file')}
+            className={`flex-1 py-4 text-xs font-semibold tracking-widest transition-colors ${
+              tab === 'file'
+                ? 'text-brand-700 border-b-2 border-brand-700 bg-white'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            UPLOAD FILE
+          </button>
         </div>
 
         <div className="p-7">
+          {/* Cloud-mode notice */}
+          {isCloud && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-sm text-amber-800">
+              <span className="text-lg leading-none mt-0.5">ℹ️</span>
+              <div>
+                <span className="font-semibold">Upload a file to get started.</span>{' '}
+                YouTube links are only supported when running PitchPerfect locally — cloud servers are
+                blocked by YouTube's bot detection. Upload an MP3 or WAV and everything else works exactly the same.
+              </div>
+            </div>
+          )}
+
           {/* Shared artist / title fields */}
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
@@ -485,7 +513,7 @@ export default function SongInput({ onSubmit }) {
           <HowItWorksStep
             n="1"
             title="Drop a song"
-            body="Paste a YouTube link or upload an audio file. We separate the vocals from the backing track so you can sing along to instrumental — or test yourself against the real vocal take."
+            body="Upload an MP3, WAV, or other audio file. We separate the vocals from the backing track so you can sing along to instrumental — or test yourself against the real vocal take."
           />
           <HowItWorksStep
             n="2"
@@ -510,8 +538,8 @@ export default function SongInput({ onSubmit }) {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
-            { icon: '🎵', title: 'Any song you love', body: 'Not a fixed karaoke catalog — bring any YouTube link or audio file.' },
-            { icon: '🔒', title: 'Stays on your laptop',   body: 'Recording, scoring, and analysis run locally. No uploads, no account, no tracking.' },
+            { icon: '🎵', title: 'Any song you love', body: 'Not a fixed karaoke catalog — bring any audio file (or YouTube link in the local version).' },
+            { icon: '🔒', title: 'Your voice stays private', body: 'Your recordings never leave your browser. Only the song audio you provide is processed — no account required.' },
             { icon: '📈', title: 'Real numbers',           body: 'Cents off, milliseconds off — not just stars and "good job".' },
           ].map((c) => (
             <div key={c.title} className="bg-white border border-gray-200 rounded-xl p-5">
@@ -538,7 +566,7 @@ export default function SongInput({ onSubmit }) {
           />
           <FaqItem
             q="Is my voice ever uploaded?"
-            a="No. Recording, scoring, and analysis all happen on your machine. The only network calls are downloading the YouTube audio you asked for and looking up lyrics — never your voice."
+            a="No. Your recordings are processed entirely in your browser and are never sent anywhere. The song audio you provide is sent to our analysis server (for vocal separation and transcription), but your voice recordings stay local — never uploaded."
           />
           <FaqItem
             q="Do I need a fancy microphone?"
@@ -561,7 +589,7 @@ export default function SongInput({ onSubmit }) {
 
       {/* Final reassurance */}
       <p className="text-center text-xs text-gray-500 mb-4">
-        Everything runs locally — no cloud APIs, no data uploaded, no account required.
+        Your voice recordings never leave your browser — no account required.
       </p>
     </div>
   )
