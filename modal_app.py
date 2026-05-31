@@ -38,6 +38,7 @@ DATA_DIR = "/pitchperfect-data"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .run_commands("echo 'cache-bust-v3'")  # bump to force full image rebuild
     .apt_install(
         "ffmpeg",       # audio conversion throughout the pipeline
         "libsndfile1",  # required by soundfile / librosa
