@@ -248,8 +248,30 @@ export default function App() {
   )
 
   const handleSongSubmit = useCallback(
-    async ({ type, url, file, artist = '', songTitle = '' }) => {
+    async ({ type, url, file, artist = '', songTitle = '', job_id: cachedJobId, cached }) => {
       setError(null)
+
+      // Sample song: backend already has (or is computing) the job — skip the upload.
+      if (type === 'sample') {
+        setJobId(cachedJobId)
+        if (cached) {
+          // Instantly ready — jump straight to recording studio.
+          setJobStatus({ status: 'complete', progress: 100, message: 'Ready!' })
+          setAppState(S.READY)
+          // Populate job status with full reference via a single poll.
+          try {
+            const res = await fetch(`/api/job/${cachedJobId}`)
+            if (res.ok) setJobStatus(await res.json())
+          } catch (_) {}
+        } else {
+          // First-ever call — pipeline is running, poll like normal.
+          setAppState(S.PROCESSING)
+          setJobStatus({ status: 'processing', progress: 2, message: 'Processing sample song…' })
+          startPolling(cachedJobId)
+        }
+        return
+      }
+
       setAppState(S.PROCESSING)
       setJobStatus({ status: 'starting', progress: 0, message: 'Starting...' })
 

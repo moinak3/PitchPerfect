@@ -740,6 +740,8 @@ export default function RecordingStudio({
   const [countdown, setCountdown] = useState(null)
   // recTime is a float driven by audioRef.currentTime for smooth sync
   const [recTime, setRecTime] = useState(0)
+  const [audioReady, setAudioReady] = useState(false)
+  const [audioLoadError, setAudioLoadError] = useState(null)
   // Sync offset (seconds): the singer's perceived "now" is recTime - autoLatency.
   // Auto-detected from the AudioContext when recording starts (the OS-reported
   // sound-to-speakers delay).  Word starts themselves are refined acoustically
@@ -770,6 +772,14 @@ export default function RecordingStudio({
   useWaveform(canvasRef, analyserRef, isRecording)
 
   const trackUrl = `/api/audio/${jobId}/${withVocals ? 'original' : 'backing'}`
+
+  // Reset audio ready state whenever the track changes
+  const prevTrackUrl = useRef(trackUrl)
+  if (prevTrackUrl.current !== trackUrl) {
+    prevTrackUrl.current = trackUrl
+    setAudioReady(false)
+    setAudioLoadError(null)
+  }
 
   const stopRaf = useCallback(() => {
     if (rafRef.current) {
@@ -863,7 +873,13 @@ export default function RecordingStudio({
 
         if (audioRef.current) {
           audioRef.current.currentTime = 0
-          audioRef.current.play().catch(() => {})
+          audioRef.current.play().catch((err) => {
+            console.warn('Audio play failed:', err)
+            setMicError(
+              'Song audio couldn\'t start — the track may still be loading. ' +
+              'Wait a moment and try recording again.'
+            )
+          })
         }
 
         // RAF loop: read audio.currentTime every frame for smooth, locked sync
@@ -1115,16 +1131,32 @@ export default function RecordingStudio({
             )}
 
             {!isRecording && !hasRecording && (
-              <p className="text-gray-700 text-xs text-center max-w-xs">
-                A 3-second countdown plays before recording starts. The song will play through your speakers while your mic captures your voice.
-              </p>
+              <>
+                {audioLoadError ? (
+                  <p className="text-red-600 text-xs text-center max-w-xs">{audioLoadError}</p>
+                ) : !audioReady ? (
+                  <p className="text-brand-700 text-xs text-center max-w-xs animate-pulse">
+                    ⏳ Loading song audio…
+                  </p>
+                ) : (
+                  <p className="text-gray-700 text-xs text-center max-w-xs">
+                    A 3-second countdown plays before recording starts. The song will play through your speakers while your mic captures your voice.
+                  </p>
+                )}
+              </>
             )}
           </>
         )}
       </div>
 
-      {/* Hidden audio element */}
-      <audio ref={audioRef} src={trackUrl} preload="auto" />
+      {/* Hidden audio element — fires onCanPlayThrough once enough data is buffered */}
+      <audio
+        ref={audioRef}
+        src={trackUrl}
+        preload="auto"
+        onCanPlayThrough={() => { setAudioReady(true); setAudioLoadError(null) }}
+        onError={() => setAudioLoadError('Could not load song audio — check your connection and try reloading.')}
+      />
     </div>
   )
 }

@@ -231,6 +231,25 @@ export default function SongInput({ onSubmit }) {
   const loadSampleSong = async () => {
     setLoadingSample(true)
     try {
+      // Ask the backend for the cached sample job first.
+      // If it's already been processed (by any previous user), we get an instant
+      // job_id and skip the 5-minute pipeline entirely.
+      // If not cached yet, the backend queues processing and we fall back to
+      // the normal upload + polling flow.
+      const cacheRes = await fetch('/api/sample-song', { method: 'POST' })
+      if (cacheRes.ok) {
+        const { job_id, cached } = await cacheRes.json()
+        // Notify the parent — it will start polling and advance state
+        await onSubmit({ type: 'sample', job_id, cached, artist: 'Elvis Presley', songTitle: "Can't Help Falling in Love" })
+        return
+      }
+    } catch (_) {
+      // If the sample-song endpoint fails (e.g. MP3 not on Volume yet),
+      // fall back to uploading the file directly.
+    }
+
+    // Fallback: upload the MP3 from Vercel's CDN directly
+    try {
       const res = await fetch('/samples/cant-help-falling-in-love.mp3')
       const blob = await res.blob()
       const sampleFile = new File([blob], "Cant Help Falling in Love - Elvis Presley.mp3", { type: 'audio/mpeg' })

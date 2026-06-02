@@ -120,6 +120,17 @@ def _run_pipeline(
         _, vocal_start_time = detect_vocal_sections(pitch_times, pitch_hz, pitch_conf)
         logger.info("[%s] Vocal start detected at %.1fs", job_id, vocal_start_time)
 
+        # Encode the original (with-vocals) track to MP3 for browser playback —
+        # same reason as the backing MP3: smaller file, faster streaming through proxy.
+        original_mp3 = str(TEMP_DIR / job_id / "original.mp3")
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-i", audio_path, "-b:a", "128k", original_mp3],
+            capture_output=True, text=True, timeout=120,
+        )
+        if r.returncode != 0:
+            logger.warning("[%s] ffmpeg MP3 encode failed for original — using WAV: %s", job_id, r.stderr[-200:])
+            original_mp3 = audio_path  # fall back to original WAV
+
         reference = {
             "job_id": job_id,
             "duration": duration,
@@ -136,7 +147,7 @@ def _run_pipeline(
             "rms_values": rms_values,
             "vocals_path": vocals_path,
             "backing_path": backing_path,
-            "original_path": audio_path,
+            "original_path": original_mp3,
         }
 
         ref_file = TEMP_DIR / job_id / "reference.json"
@@ -514,10 +525,13 @@ def serve_audio(job_id: str, track: str):
     if not audio_path or not Path(audio_path).exists():
         raise HTTPException(404, f"Audio file for track '{track}' not found on disk")
 
+    ext = Path(audio_path).suffix.lower()
+    mime = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg"}.get(ext, "audio/wav")
+
     return FileResponse(
         path=audio_path,
-        media_type="audio/wav",
-        headers={"Accept-Ranges": "bytes", "Cache-Control": "no-cache"},
+        media_type=mime,
+        headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600"},
     )
 
 
@@ -535,6 +549,57 @@ def serve_user_recording(job_id: str):
         media_type="audio/wav",
         headers={"Accept-Ranges": "bytes", "Cache-Control": "no-cache"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Sample song — pre-processed once, shared by all users.
+# ---------------------------------------------------------------------------
+# The sample MP3 lives on the Modal Volume at /pitchperfect-data/sample-song.mp3
+# (upload once with: modal volume put pitchperfect-data <local.mp3> /sample-song.mp3)
+# After the first call that triggers processing, all subsequent callers get the
+# cached job instantly — no waiting for demucs.
+
+SAMPLE_JOB_ID = "sample-v1"
+SAMPLE_MP3_PATH = Path(os.environ.get("PP_TEMP_DIR", "./temp")).parent / "sample-song.mp3"
+_sample_processing = False   # simple guard against double-start
+
+
+@app.post("/api/sample-song")
+def get_or_start_sample():
+    global _sample_processing
+
+    # Already cached and complete?
+    if _recover_job_from_disk(SAMPLE_JOB_ID):
+        return {"job_id": SAMPLE_JOB_ID, "cached": True}
+
+    # Already in memory (processing or complete)?
+    if SAMPLE_JOB_ID in jobs:
+        return {"job_id": SAMPLE_JOB_ID, "cached": False}
+
+    # Source file missing from Volume — instruct the operator.
+    if not SAMPLE_MP3_PATH.exists():
+        raise HTTPException(
+            503,
+            "Sample song not yet uploaded to the Modal Volume. "
+            "Run: modal volume put pitchperfect-data cant-help-falling-in-love.mp3 /sample-song.mp3"
+        )
+
+    if not _sample_processing:
+        _sample_processing = True
+        jobs[SAMPLE_JOB_ID] = {
+            "status": "processing",
+            "progress": 2,
+            "message": "Starting sample song processing…",
+        }
+        _executor.submit(
+            _run_pipeline,
+            SAMPLE_JOB_ID,
+            str(SAMPLE_MP3_PATH),
+            "Elvis Presley",
+            "Can't Help Falling in Love",
+        )
+
+    return {"job_id": SAMPLE_JOB_ID, "cached": False}
 
 
 # ---------------------------------------------------------------------------
