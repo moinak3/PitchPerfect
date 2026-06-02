@@ -133,27 +133,16 @@ def separate_vocals(
     if not backing_path or not backing_path.exists():
         raise RuntimeError("no_vocals.wav not found after demucs separation")
 
-    # Vocals: 16kHz mono WAV — needed for pitch analysis downstream.
+    # Both tracks: 16kHz mono WAV.
+    # WAV has zero encoder delay, which is critical for word-highlight sync —
+    # MP3's LAME encoder prepends ~25-50 ms of padding that browsers don't
+    # always strip, causing word timestamps to appear consistently early.
     norm_vocals = str(TEMP_DIR / job_id / "vocals_16k.wav")
+    norm_backing = str(TEMP_DIR / job_id / "backing_16k.wav")
     normalize_audio(str(vocals_path), norm_vocals)
+    normalize_audio(str(backing_path), norm_backing)
 
-    # Backing / original: encode to MP3 for browser playback.
-    # MP3 at 128 kbps is ~6× smaller than 16kHz WAV and streams through
-    # Vercel's proxy much faster, eliminating the "audio not ready" race
-    # when the user presses REC shortly after processing completes.
-    backing_mp3 = str(TEMP_DIR / job_id / "backing.mp3")
-    r = subprocess.run(
-        ["ffmpeg", "-y", "-i", str(backing_path), "-b:a", "128k", backing_mp3],
-        capture_output=True, text=True, timeout=120,
-    )
-    if r.returncode != 0:
-        # Fall back to normalised WAV if ffmpeg MP3 encoding fails
-        logger.warning("ffmpeg MP3 encode failed for backing — falling back to WAV: %s", r.stderr[-200:])
-        norm_backing = str(TEMP_DIR / job_id / "backing_16k.wav")
-        normalize_audio(str(backing_path), norm_backing)
-        backing_mp3 = norm_backing
-
-    return norm_vocals, backing_mp3
+    return norm_vocals, norm_backing
 
 
 def extract_pitch_pyin(audio_path: str) -> Tuple[List[float], List[float], List[float]]:

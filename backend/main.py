@@ -120,17 +120,6 @@ def _run_pipeline(
         _, vocal_start_time = detect_vocal_sections(pitch_times, pitch_hz, pitch_conf)
         logger.info("[%s] Vocal start detected at %.1fs", job_id, vocal_start_time)
 
-        # Encode the original (with-vocals) track to MP3 for browser playback —
-        # same reason as the backing MP3: smaller file, faster streaming through proxy.
-        original_mp3 = str(TEMP_DIR / job_id / "original.mp3")
-        r = subprocess.run(
-            ["ffmpeg", "-y", "-i", audio_path, "-b:a", "128k", original_mp3],
-            capture_output=True, text=True, timeout=120,
-        )
-        if r.returncode != 0:
-            logger.warning("[%s] ffmpeg MP3 encode failed for original — using WAV: %s", job_id, r.stderr[-200:])
-            original_mp3 = audio_path  # fall back to original WAV
-
         reference = {
             "job_id": job_id,
             "duration": duration,
@@ -147,7 +136,7 @@ def _run_pipeline(
             "rms_values": rms_values,
             "vocals_path": vocals_path,
             "backing_path": backing_path,
-            "original_path": original_mp3,
+            "original_path": audio_path,
         }
 
         ref_file = TEMP_DIR / job_id / "reference.json"
