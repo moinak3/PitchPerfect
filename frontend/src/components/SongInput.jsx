@@ -223,9 +223,25 @@ export default function SongInput({ onSubmit }) {
   const [file, setFile] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [loadingSample, setLoadingSample] = useState(false)
   const [artist, setArtist] = useState('Elvis Presley')
   const [songTitle, setSongTitle] = useState("Can't Help Falling in Love")
   const fileRef = useRef(null)
+
+  const loadSampleSong = async () => {
+    setLoadingSample(true)
+    try {
+      const res = await fetch('/samples/cant-help-falling-in-love.mp3')
+      const blob = await res.blob()
+      const sampleFile = new File([blob], "Cant Help Falling in Love - Elvis Presley.mp3", { type: 'audio/mpeg' })
+      setFile(sampleFile)
+      setArtist('Elvis Presley')
+      setSongTitle("Can't Help Falling in Love")
+      setTab('file')
+    } finally {
+      setLoadingSample(false)
+    }
+  }
 
   const handleYouTubeSubmit = async (e) => {
     e.preventDefault()
@@ -401,6 +417,20 @@ export default function SongInput({ onSubmit }) {
                   </div>
                 )}
               </div>
+              {!file && (
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <button
+                    type="button"
+                    onClick={loadSampleSong}
+                    disabled={loadingSample}
+                    className="text-xs text-brand-700 font-semibold hover:text-brand-900 disabled:text-gray-400 transition-colors whitespace-nowrap"
+                  >
+                    {loadingSample ? 'Loading…' : '🎵 Try a sample song instead'}
+                  </button>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
               <button type="submit" disabled={loading || !file} className={submitCls}>
                 {loading ? 'Uploading…' : 'Analyze Song →'}
               </button>
