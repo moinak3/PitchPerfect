@@ -309,18 +309,6 @@ export default function SongInput({ onSubmit }) {
         </div>
 
         <div className="p-7">
-          {/* Cloud-mode notice */}
-          {isCloud && (
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-sm text-amber-800">
-              <span className="text-lg leading-none mt-0.5">ℹ️</span>
-              <div>
-                <span className="font-semibold">Upload a file to get started.</span>{' '}
-                YouTube links are only supported when running PitchPerfect locally — cloud servers are
-                blocked by YouTube's bot detection. Upload an MP3 or WAV and everything else works exactly the same.
-              </div>
-            </div>
-          )}
-
           {/* Shared artist / title fields */}
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
