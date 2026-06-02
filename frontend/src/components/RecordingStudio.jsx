@@ -747,7 +747,7 @@ export default function RecordingStudio({
   // they fire later in the audio, compensating for Whisper timestamps that
   // are systematically early on slow ballads (200–500 ms is typical).
   const [autoLatency, setAutoLatency] = useState(0)
-  const [syncTrim, setSyncTrim] = useState(0.3)
+  const [syncTrim, setSyncTrim] = useState(0)
 
   // Aligned karaoke words (with per-word target notes) — computed once per data
   // change and shared by both the karaoke line and the melody guide.

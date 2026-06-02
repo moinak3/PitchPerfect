@@ -236,7 +236,7 @@ def refine_word_onsets(
     rms_times: List[float],
     rms_values: List[float],
     pre: float = 0.0,
-    post: float = 0.6,
+    post: float = 1.2,
     conf_threshold: float = 0.2,
 ) -> List[dict]:
     """
@@ -244,12 +244,16 @@ def refine_word_onsets(
 
     Why: on sustained singing Whisper's word_timestamps mark the start of the
     decoded segment containing the word, which can precede the audible
-    articulation by 200-500 ms (or more on slow ballads).  We refine each
+    articulation by 200–500 ms (or more on slow ballads).  We refine each
     word.start by searching a window [start - pre, start + post] for the first
-    moment that's audibly the word: either pitch confidence crosses
-    ``conf_threshold`` (clear voiced singing begins) or, failing that, the RMS
-    envelope rises clearly above local background.  The earlier of the two is
-    chosen, monotonically constrained against the previous word.
+    moment that's audibly the word.
+
+    Key insight for legato/ballad singing: with a naive "conf >= 0.2" threshold
+    the refinement returns ws immediately because pyin reports voiced frames
+    throughout — the previous note is still ringing.  Instead we look for where
+    pitch confidence rises ABOVE the local pre-word baseline by a meaningful
+    margin (≥ +0.25).  This detects the perceptual onset of the new note rather
+    than confirming that voice is present at all.
 
     Word ends are then patched so mid-phrase words remain contiguous (each
     word's end = the next word's refined start); ORIGINAL pauses (where
@@ -260,7 +264,7 @@ def refine_word_onsets(
         pitch_times, pitch_conf:  pyin output (sorted by time).
         rms_times, rms_values:    RMS envelope (sorted by time).
         pre, post:    seconds we're willing to shift the start earlier / later.
-        conf_threshold: pyin confidence above which we call a frame voiced.
+        conf_threshold: pyin confidence floor for the fallback voiced check.
 
     Returns:
         New list of {word, start, end} dicts with refined starts/ends.
@@ -271,11 +275,39 @@ def refine_word_onsets(
         return [dict(w) for w in words]
 
     def first_pitch_rise(lo: float, hi: float) -> Optional[float]:
+        # Measure median pitch confidence in the 200 ms window *before* lo.
+        # This is the "previous note" baseline — we want to detect where the
+        # NEW note rises clearly above it, not just where voice is present.
+        bl_lo = max(0.0, lo - 0.20)
+        bl_vals: List[float] = []
+        j = bisect.bisect_left(pitch_times, bl_lo)
+        while j < len(pitch_times) and pitch_times[j] < lo:
+            bl_vals.append(pitch_conf[j])
+            j += 1
+        baseline = sorted(bl_vals)[len(bl_vals) // 2] if bl_vals else 0.0
+
+        # "Solidly on new note" threshold: baseline + 0.25 but at least conf_threshold.
+        # On a legato ballad baseline ≈ 0.3 → onset_thresh ≈ 0.55 (requires the
+        # note to be well-established, not just voice continuing from before).
+        # On a phrase that starts from silence baseline ≈ 0 → threshold ≈ 0.25
+        # (same as previous behaviour for first words / after pauses).
+        onset_thresh = max(conf_threshold, baseline + 0.25)
+
+        # First pass: look for the frame where the new note is clearly on.
+        idx = bisect.bisect_left(pitch_times, lo)
+        while idx < len(pitch_times) and pitch_times[idx] <= hi:
+            if pitch_conf[idx] >= onset_thresh:
+                return pitch_times[idx]
+            idx += 1
+
+        # Fallback: soft/breathy phrases may never reach onset_thresh — accept
+        # any voiced frame as before.
         idx = bisect.bisect_left(pitch_times, lo)
         while idx < len(pitch_times) and pitch_times[idx] <= hi:
             if pitch_conf[idx] >= conf_threshold:
                 return pitch_times[idx]
             idx += 1
+
         return None
 
     def first_rms_rise(lo: float, hi: float) -> Optional[float]:
