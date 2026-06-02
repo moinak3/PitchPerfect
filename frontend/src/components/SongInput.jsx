@@ -279,34 +279,24 @@ export default function SongInput({ onSubmit }) {
 
       {/* Input card */}
       <div id="coach-form" className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-10 shadow-sm scroll-mt-24">
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 bg-brand-50/50">
-          {/* YouTube tab — disabled in cloud mode */}
-          <button
-            onClick={() => !isCloud && setTab('youtube')}
-            disabled={isCloud}
-            title={isCloud ? 'YouTube links work in the local version' : undefined}
-            className={`flex-1 py-4 text-xs font-semibold tracking-widest transition-colors ${
-              isCloud
-                ? 'text-gray-300 cursor-not-allowed'
-                : tab === 'youtube'
-                ? 'text-brand-700 border-b-2 border-brand-700 bg-white'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            YOUTUBE URL{isCloud ? ' (local only)' : ''}
-          </button>
-          <button
-            onClick={() => setTab('file')}
-            className={`flex-1 py-4 text-xs font-semibold tracking-widest transition-colors ${
-              tab === 'file'
-                ? 'text-brand-700 border-b-2 border-brand-700 bg-white'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            UPLOAD FILE
-          </button>
-        </div>
+        {/* Tabs — YouTube tab hidden in cloud mode */}
+        {!isCloud && (
+          <div className="flex border-b border-gray-200 bg-brand-50/50">
+            {['youtube', 'file'].map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`flex-1 py-4 text-xs font-semibold tracking-widest transition-colors ${
+                  tab === t
+                    ? 'text-brand-700 border-b-2 border-brand-700 bg-white'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t === 'youtube' ? 'YOUTUBE URL' : 'UPLOAD FILE'}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="p-7">
           {/* Shared artist / title fields */}
