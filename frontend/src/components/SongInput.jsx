@@ -436,6 +436,9 @@ export default function SongInput({ onSubmit }) {
                   </div>
                 )}
               </div>
+              <button type="submit" disabled={loading || !file} className={submitCls}>
+                {loading ? 'Uploading…' : 'Analyze Song →'}
+              </button>
               {!file && (
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-px bg-gray-200" />
@@ -450,9 +453,6 @@ export default function SongInput({ onSubmit }) {
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
               )}
-              <button type="submit" disabled={loading || !file} className={submitCls}>
-                {loading ? 'Uploading…' : 'Analyze Song →'}
-              </button>
             </form>
           )}
         </div>
