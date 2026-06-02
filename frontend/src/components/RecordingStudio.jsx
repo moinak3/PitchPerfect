@@ -742,11 +742,12 @@ export default function RecordingStudio({
   const [recTime, setRecTime] = useState(0)
   const [audioReady, setAudioReady] = useState(false)
   const [audioLoadError, setAudioLoadError] = useState(null)
-  // Sync offset (seconds): the singer's perceived "now" is recTime - autoLatency.
-  // Auto-detected from the AudioContext when recording starts (the OS-reported
-  // sound-to-speakers delay).  Word starts themselves are refined acoustically
-  // in the backend pipeline, so no manual trim is exposed.
+  // autoLatency: OS-reported sound-to-speaker delay (hardware output buffer).
+  // syncTrim: manual offset added on top — positive value delays highlights so
+  // they fire later in the audio, compensating for Whisper timestamps that
+  // are systematically early on slow ballads (200–500 ms is typical).
   const [autoLatency, setAutoLatency] = useState(0)
+  const [syncTrim, setSyncTrim] = useState(0.3)
 
   // Aligned karaoke words (with per-word target notes) — computed once per data
   // change and shared by both the karaoke line and the melody guide.
@@ -998,9 +999,31 @@ export default function RecordingStudio({
       {isRecording && (
         <div className="bg-[#080808] border border-[#1C1C1C] rounded-xl overflow-hidden mb-4">
           {/* Karaoke lyrics line */}
-          <KaraokeDisplay displayWords={displayWords} recTime={recTime} syncOffset={autoLatency} />
+          <KaraokeDisplay displayWords={displayWords} recTime={recTime} syncOffset={autoLatency + syncTrim} />
           {/* Melody guide — per-word target notes on a stable pitch scale */}
-          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} syncOffset={autoLatency} />
+          <PitchGuide displayWords={displayWords} recTime={recTime} pitchGuide={pitchGuide} syncOffset={autoLatency + syncTrim} />
+          {/* Sync trim control — adjusts how early/late highlights fire */}
+          <div className="flex items-center gap-3 px-4 py-2 border-t border-[#1C1C1C]">
+            <span className="text-[9px] text-gray-600 tracking-widest whitespace-nowrap">WORD TIMING</span>
+            <input
+              type="range"
+              min={-0.3}
+              max={1.2}
+              step={0.05}
+              value={syncTrim}
+              onChange={(e) => setSyncTrim(parseFloat(e.target.value))}
+              className="flex-1 accent-brand-600 h-1 cursor-pointer"
+            />
+            <span className="text-[10px] font-mono text-gray-400 w-14 text-right">
+              {syncTrim >= 0 ? '+' : ''}{syncTrim.toFixed(2)}s
+            </span>
+            <button
+              onClick={() => setSyncTrim(0)}
+              className="text-[9px] text-gray-600 hover:text-gray-400 transition-colors"
+            >
+              reset
+            </button>
+          </div>
         </div>
       )}
 

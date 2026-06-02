@@ -1,0 +1,8 @@
+requirements.txt
+backend/
+modal_app.py
+scripts/
+temp/
+__pycache__/
+.venv/
+*.pyc
