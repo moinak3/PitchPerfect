@@ -88,26 +88,44 @@ def _run_pipeline(
         update("extracting_dynamics", 70, "Analyzing dynamics and energy envelope...")
         rms_times, rms_values = extract_rms_envelope(vocals_path)
 
-        update("transcribing", 80, "Transcribing lyrics with Whisper...")
+        update("transcribing", 80, "Aligning lyrics to the vocal...")
         from .alignment import detect_language
         language = detect_language(vocals_path)
-        # IMPORTANT: we deliberately do NOT feed the looked-up lyrics as Whisper's
-        # initial_prompt.  Doing so biases Whisper into skipping the soft opening
-        # verse — it jumps straight to a later line, leaving the karaoke with no
-        # timestamps for the first words (they then have to be guessed, causing
-        # visible lag).  Verified A/B: WITH prompt → first word at 23.3s (verse 1
-        # dropped); WITHOUT prompt → first word at 7.6s (full coverage).
-        # We need COMPLETE, accurate word timing more than accurate text — the
-        # correct spelling is restored downstream by aligning the looked-up
-        # lyrics onto these timestamps (see buildDisplayWords / scoring).
-        words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
 
-        # Snap each word's start to its actual acoustic onset.  Whisper's word
-        # starts on sustained singing are systematically ~200-500 ms before the
-        # audible articulation, which makes the karaoke highlight fire early.
-        # This refines start times against the pitch-confidence and RMS curves.
-        from .audio_utils import refine_word_onsets
-        words = refine_word_onsets(words, pitch_times, pitch_conf, rms_times, rms_values)
+        # PRIMARY PATH — CTC forced alignment of the KNOWN lyrics onto the
+        # isolated vocal stem.  This is the gold standard for karaoke timing:
+        # it produces frame-accurate (~20 ms) word onsets AND correct word
+        # identity in one pass.  It far outperforms Whisper's cross-attention
+        # `word_timestamps`, which drift systematically early on sustained
+        # singing.  Only possible when we actually found lyrics for the song.
+        words = None
+        if lyrics:
+            try:
+                from .forced_align import forced_align_words, lyrics_to_word_list
+                lyric_word_list = lyrics_to_word_list(lyrics)
+                update("transcribing", 82, "Force-aligning lyrics to the vocal (word-level)...")
+                fa_words = forced_align_words(vocals_path, lyric_word_list)
+                if fa_words:
+                    words = fa_words
+                    logger.info("[%s] Forced alignment: %d words (frame-accurate onsets)", job_id, len(words))
+                else:
+                    logger.info("[%s] Forced alignment unusable — falling back to Whisper", job_id)
+            except Exception:
+                logger.exception("[%s] Forced alignment errored — falling back to Whisper", job_id)
+
+        # FALLBACK PATH — Whisper transcription + acoustic-onset refinement.
+        # Used when no lyrics were found (e.g. YouTube/upload without metadata)
+        # or forced alignment failed.  We deliberately do NOT feed lyrics as
+        # Whisper's initial_prompt: doing so biases Whisper into skipping the
+        # soft opening verse (A/B verified: WITH prompt → first word 23.3s,
+        # verse 1 dropped; WITHOUT → 7.6s, full coverage).  Whisper's early word
+        # starts on sustained singing are then snapped to the acoustic onset
+        # against the pitch-confidence and RMS curves.
+        if words is None:
+            update("transcribing", 84, "Transcribing lyrics with Whisper...")
+            words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
+            from .audio_utils import refine_word_onsets
+            words = refine_word_onsets(words, pitch_times, pitch_conf, rms_times, rms_values)
 
         if not words:
             logger.warning("[%s] No words transcribed — vocal track may be silent", job_id)
@@ -462,34 +480,44 @@ async def retranscribe(job_id: str, lyrics: str = Form(...)):
     if not vocals_path or not Path(vocals_path).exists():
         raise HTTPException(404, "Vocals file not found on disk")
 
-    from .alignment import transcribe_with_timestamps
-
     language = ref.get("language")
 
     import asyncio
     loop = asyncio.get_event_loop()
-    try:
-        words = await loop.run_in_executor(
-            _executor,
-            lambda: transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None),
+
+    def _realign() -> list:
+        # PRIMARY: force-align the edited lyrics onto the vocal stem for
+        # frame-accurate onsets on exactly the words the user typed.
+        try:
+            from .forced_align import forced_align_words, lyrics_to_word_list
+            fa_words = forced_align_words(vocals_path, lyrics_to_word_list(lyrics))
+            if fa_words:
+                logger.info("[%s] Retranscribe via forced alignment → %d words", job_id, len(fa_words))
+                return fa_words
+        except Exception:
+            logger.exception("[%s] Forced alignment failed on retranscribe — using Whisper", job_id)
+
+        # FALLBACK: Whisper + acoustic-onset refinement.
+        from .alignment import transcribe_with_timestamps
+        from .audio_utils import refine_word_onsets
+        w = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
+        return refine_word_onsets(
+            w,
+            ref.get("pitch_times", []),
+            ref.get("pitch_confidence", []),
+            ref.get("rms_times", []),
+            ref.get("rms_values", []),
         )
+
+    try:
+        words = await loop.run_in_executor(_executor, _realign)
     except Exception as exc:
         logger.exception("[%s] Retranscription failed", job_id)
         raise HTTPException(500, f"Retranscription failed: {exc}")
 
-    # Same acoustic-onset refinement as the main pipeline.
-    from .audio_utils import refine_word_onsets
-    words = refine_word_onsets(
-        words,
-        ref.get("pitch_times", []),
-        ref.get("pitch_confidence", []),
-        ref.get("rms_times", []),
-        ref.get("rms_values", []),
-    )
-
     ref["words"] = words
     ref["lyrics"] = lyrics
-    logger.info("[%s] Retranscribed (no prompt) with edited lyrics → %d words", job_id, len(words))
+    logger.info("[%s] Retranscribed with edited lyrics → %d words", job_id, len(words))
     return {"words": words, "lyrics": lyrics}
 
 
