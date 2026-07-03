@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -10,28 +11,40 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-def _fetch_lyrics_ovh(artist: str, title: str) -> Optional[str]:
-    """Single LyricsOVH request. Returns lyrics text or None (incl. 404)."""
+def _fetch_lyrics_ovh(artist: str, title: str, retries: int = 3) -> Optional[str]:
+    """Single-spelling LyricsOVH request with retry on transient failures.
+
+    LyricsOVH (a free API) intermittently drops connections / times out.  A
+    hard failure here silently disables forced alignment downstream, so we
+    retry transient errors a few times with backoff.  A 404, by contrast, is
+    a definitive "not found under this spelling" — we return immediately so the
+    caller can try the next title variant.
+    """
     url = (
         "https://api.lyrics.ovh/v1/"
         + urllib.parse.quote(artist.strip())
         + "/"
         + urllib.parse.quote(title.strip())
     )
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "PitchPerfect/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read())
-            lyrics = (data.get("lyrics") or "").strip()
-            return lyrics or None
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None  # song not found under this exact spelling — try a variant
-        logger.warning("Lyrics lookup HTTP error for '%s – %s': %s", artist, title, e)
-        return None
-    except Exception as e:
-        logger.warning("Lyrics lookup failed for '%s – %s': %s", artist, title, e)
-        return None
+    last_err: Optional[Exception] = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "PitchPerfect/1.0"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                data = json.loads(r.read())
+                lyrics = (data.get("lyrics") or "").strip()
+                return lyrics or None
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None  # not found under this spelling — try a variant
+            last_err = e  # 5xx / rate limit — worth retrying
+        except Exception as e:
+            last_err = e  # connection reset / timeout / DNS — transient
+        if attempt < retries - 1:
+            time.sleep(0.6 * (attempt + 1))  # 0.6s, 1.2s backoff
+    logger.warning("Lyrics lookup failed for '%s – %s' after %d tries: %s",
+                   artist, title, retries, last_err)
+    return None
 
 
 def _title_variants(title: str):

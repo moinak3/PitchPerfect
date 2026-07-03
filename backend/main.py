@@ -90,42 +90,53 @@ def _run_pipeline(
 
         update("transcribing", 80, "Aligning lyrics to the vocal...")
         from .alignment import detect_language
+        from .forced_align import forced_align_words, lyrics_to_word_list
         language = detect_language(vocals_path)
 
-        # PRIMARY PATH — CTC forced alignment of the KNOWN lyrics onto the
-        # isolated vocal stem.  This is the gold standard for karaoke timing:
-        # it produces frame-accurate (~20 ms) word onsets AND correct word
-        # identity in one pass.  It far outperforms Whisper's cross-attention
-        # `word_timestamps`, which drift systematically early on sustained
-        # singing.  Only possible when we actually found lyrics for the song.
+        # Word timing is produced by CTC forced alignment on the isolated vocal
+        # stem — frame-accurate (~20 ms) onsets that far outperform Whisper's
+        # cross-attention `word_timestamps` (which drift early on sustained
+        # singing).  We try three tiers, best first:
         words = None
+        align_source = None
+
+        # ── Tier 1: force-align the KNOWN looked-up lyrics ──────────────────
+        # Gives CORRECT word identity AND exact timing in one pass.
         if lyrics:
             try:
-                from .forced_align import forced_align_words, lyrics_to_word_list
-                lyric_word_list = lyrics_to_word_list(lyrics)
                 update("transcribing", 82, "Force-aligning lyrics to the vocal (word-level)...")
-                fa_words = forced_align_words(vocals_path, lyric_word_list)
-                if fa_words:
-                    words = fa_words
-                    logger.info("[%s] Forced alignment: %d words (frame-accurate onsets)", job_id, len(words))
-                else:
-                    logger.info("[%s] Forced alignment unusable — falling back to Whisper", job_id)
+                fa = forced_align_words(vocals_path, lyrics_to_word_list(lyrics))
+                if fa:
+                    words, align_source = fa, "forced-align(lyrics)"
             except Exception:
-                logger.exception("[%s] Forced alignment errored — falling back to Whisper", job_id)
+                logger.exception("[%s] Tier-1 forced alignment errored", job_id)
 
-        # FALLBACK PATH — Whisper transcription + acoustic-onset refinement.
-        # Used when no lyrics were found (e.g. YouTube/upload without metadata)
-        # or forced alignment failed.  We deliberately do NOT feed lyrics as
-        # Whisper's initial_prompt: doing so biases Whisper into skipping the
-        # soft opening verse (A/B verified: WITH prompt → first word 23.3s,
-        # verse 1 dropped; WITHOUT → 7.6s, full coverage).  Whisper's early word
-        # starts on sustained singing are then snapped to the acoustic onset
-        # against the pitch-confidence and RMS curves.
+        # ── Tier 2: force-align WHISPER'S OWN transcript ────────────────────
+        # When no lyrics were found (or Tier 1 was unusable), we still want
+        # exact onsets.  We transcribe WITHOUT a lyrics prompt (prompting biases
+        # Whisper into skipping the soft opening verse) then force-align the
+        # words Whisper heard.  Identity is Whisper's (imperfect on singing) but
+        # the TIMING is frame-accurate — strictly better than the heuristic.
+        whisper_words = None
         if words is None:
             update("transcribing", 84, "Transcribing lyrics with Whisper...")
-            words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
+            whisper_words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
+            try:
+                fa = forced_align_words(vocals_path, [w["word"] for w in whisper_words])
+                if fa:
+                    words, align_source = fa, "forced-align(whisper)"
+            except Exception:
+                logger.exception("[%s] Tier-2 forced alignment errored", job_id)
+
+        # ── Tier 3: Whisper timestamps + acoustic-onset refinement (heuristic) ─
+        if words is None:
             from .audio_utils import refine_word_onsets
-            words = refine_word_onsets(words, pitch_times, pitch_conf, rms_times, rms_values)
+            if whisper_words is None:
+                whisper_words = transcribe_with_timestamps(vocals_path, language=language, initial_prompt=None)
+            words = refine_word_onsets(whisper_words, pitch_times, pitch_conf, rms_times, rms_values)
+            align_source = "whisper+refine"
+
+        logger.info("[%s] Word timing via %s → %d words", job_id, align_source, len(words))
 
         if not words:
             logger.warning("[%s] No words transcribed — vocal track may be silent", job_id)
@@ -146,6 +157,7 @@ def _run_pipeline(
             "artist": artist,
             "song_title": song_title,
             "lyrics": lyrics,
+            "align_source": align_source,
             "words": words,
             "pitch_times": pitch_times,
             "pitch_hz": pitch_hz,
@@ -161,6 +173,19 @@ def _run_pipeline(
         ref_file.parent.mkdir(parents=True, exist_ok=True)
         with open(ref_file, "w") as f:
             json.dump(reference, f)
+
+        # Persist a final "complete" status too — the last update() left
+        # status.json at "transcribing"/82, and a fresh container (after a
+        # redeploy) must recover 'complete', not that stale mid-pipeline state.
+        try:
+            with open(TEMP_DIR / job_id / "status.json", "w") as _sf:
+                json.dump(
+                    {"status": "complete", "progress": 100,
+                     "message": "Ready! Hit record and start singing."},
+                    _sf,
+                )
+        except Exception as _e:
+            logger.warning("[%s] Failed to write final status.json: %s", job_id, _e)
 
         job.update(
             {
@@ -231,17 +256,16 @@ def get_job(job_id: str):
         if ref_file.exists():
             with open(ref_file) as f:
                 reference = json.load(f)
-            disk_status = {}
-            if status_file.exists():
-                with open(status_file) as f:
-                    disk_status = json.load(f)
+            # reference.json is written ONLY at successful completion, so its
+            # existence means the job is done — never trust a stale status.json
+            # (the last update() was mid-pipeline at "transcribing"/82).
             jobs[job_id] = {
-                "status": disk_status.get("status", "complete"),
-                "progress": disk_status.get("progress", 100),
-                "message": disk_status.get("message", "Ready!"),
+                "status": "complete",
+                "progress": 100,
+                "message": "Ready! Hit record and start singing.",
                 "reference": reference,
             }
-            logger.info("[%s] Reconstructed job state from disk", job_id)
+            logger.info("[%s] Reconstructed complete job from disk", job_id)
         elif status_file.exists():
             # Still processing — recover progress display but no reference yet
             with open(status_file) as f:
@@ -251,6 +275,15 @@ def get_job(job_id: str):
         else:
             raise HTTPException(404, "Job not found")
     job = jobs[job_id]
+
+    # Self-heal stale state: a "reference" is only ever attached on successful
+    # completion, so its presence means the job is done.  Correct any lingering
+    # non-terminal status (e.g. left in memory by an older disk-recovery that
+    # trusted a mid-pipeline status.json) so the frontend isn't gated forever.
+    if "reference" in job and job.get("status") != "complete":
+        job["status"] = "complete"
+        job["progress"] = 100
+        job["message"] = "Ready! Hit record and start singing."
 
     pitch_guide = None
     vocal_start_time = job["reference"].get("vocal_start_time", 0.0) if "reference" in job else 0.0
